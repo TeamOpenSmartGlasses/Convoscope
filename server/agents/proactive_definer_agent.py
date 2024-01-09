@@ -1,17 +1,40 @@
 from langchain.prompts import PromptTemplate
 from langchain.schema import HumanMessage
-from langchain.chat_models import ChatOpenAI
 from langchain.output_parsers import PydanticOutputParser
+from langchain.callbacks import get_openai_callback
 from langchain.schema import OutputParserException
 from pydantic import BaseModel, Field
 from agents.agent_utils import format_list_data
-from server_config import openai_api_key
 from agents.search_tool_for_agents import (
-    asearch_google_knowledge_graph,
     search_url_for_entity_async,
 )
 from Modules.LangchainSetup import *
 import asyncio
+from Modules.QueryLLM import *
+from definer_stats.stat_tracker import *
+
+proactive_rare_word_agent_relevancy_check_prompt_blueprint = """
+# Objective
+Determine whether the following part of a conversation's transcript contains any rare/interesting topics or words. 
+
+# Criteria for rare or interesting topics
+- Rarity: Select entities that are unlikely for an average high schooler to know. Well known entities should NOT be included, like Fortune 500 organizations, worldwide-known events, popular locations, commonly discussed concepts such as "Planet" or "Free Will" or "Charles Darwin", and entities popularized by recent news or events such as "COVID-19", "Bitcoin", or "Generative AI".
+- Utility: Definition should help a user understand the conversation better and achieve their goals.
+- Complexity: Choose phrases with non-obvious meanings, such that their meaning cannot be derived from simple words within the entity name, such as "Butterfly Effect" which has a totally different meaning from its base words, but not "Electric Car" nor "Lane Keeping System" as they're easily derived.
+- Definability: Must be clearly and succinctly definable in under 10 words.
+- Existance: Don't select entities if you have no knowledge of them
+
+# Conversation Transcript:
+<Transcript start>{conversation_context}<Transcript end>
+
+# Output guidelines
+Return a number 1-10, with 1 being mundane, and 10 being very interesting/rare.
+
+## Example Output:
+6
+
+{format_instructions} 
+"""
 
 proactive_rare_word_agent_prompt_blueprint = """
 # Objective
@@ -60,6 +83,16 @@ If there are no relevant entities, output an empty array.
 # 6. Searchability: Likely to have a specific and valid reference source: Wikipedia page, dictionary entry etc.
 # - Entity names should be quoted from the conversation, so the output definitions can be referenced back to the conversation.
 
+min_gatekeeper_score = 6
+
+class GatekeeperScore(BaseModel):
+    score: int = Field(
+        description="Score of how interesting/rare/relevant the words in the passage are", default=0
+    )
+
+gatekeeper_score_query_parser = PydanticOutputParser(
+    pydantic_object=GatekeeperScore
+)
 
 class Entity(BaseModel):
     name: str = Field(
@@ -87,8 +120,50 @@ proactive_rare_word_agent_query_parser = PydanticOutputParser(
 def run_proactive_definer_agent(
     conversation_context: str, definitions_history: list = []
 ):
+
+    # First: determine if we should even run
+    gpt3start = time.time()
+    llm35 = get_langchain_gpt35()
+
+    gatekeeper_score_prompt = PromptTemplate(
+        template=proactive_rare_word_agent_relevancy_check_prompt_blueprint,
+        input_variables=[
+            "conversation_context"
+        ],
+        partial_variables={
+            "format_instructions": gatekeeper_score_query_parser.get_format_instructions(),
+        },
+    )
+    gatekeeper_score_prompt_string = (
+        gatekeeper_score_prompt.format_prompt(
+            conversation_context=conversation_context
+        ).to_string()
+    )
+
+    with get_openai_callback() as cb:
+        score_response = llm35(
+            [HumanMessage(content=gatekeeper_score_prompt_string)]
+        )
+        # print("GPT3.5 query cost:")
+        # print(cb.total_cost)
+        gpt3cost = cb.total_cost
+
+    try:
+        content = gatekeeper_score_query_parser.parse(score_response.content)
+        score = int(content.score)
+        print("SCORE: " + str(score))
+        # print("content: " + conversation_context)
+        track_gpt3_time_and_cost(time.time() - gpt3start, gpt3cost)
+        if score < min_gatekeeper_score: return None
+        print("SCORE GOOD! RUNNING GPT4!")
+    except OutputParserException as e:
+        print("ERROR: " + str(e))
+        return None
+
+    # If relevant, run full prompt
     # start up GPT4 connection
-    llm = get_langchain_gpt4()
+    gpt4start = time.time()
+    llm4 = get_langchain_gpt4()
 
     extract_proactive_rare_word_agent_query_prompt = PromptTemplate(
         template=proactive_rare_word_agent_prompt_blueprint,
@@ -98,7 +173,8 @@ def run_proactive_definer_agent(
         ],
         partial_variables={
             "format_instructions": proactive_rare_word_agent_query_parser.get_format_instructions(),
-            "number_of_definitions": "3",  # this is a tradeoff between speed and results, 3 is faster than 5
+            "number_of_definitions": "1",  # this is a tradeoff between speed and results, 3 is faster than 5
+            # Drop this to "1" for very short transcript sizes
         },
     )
 
@@ -115,17 +191,32 @@ def run_proactive_definer_agent(
     )
 
     # print("Proactive meta agent query prompt string", proactive_rare_word_agent_query_prompt_string)
-
-    response = llm(
-        [HumanMessage(content=proactive_rare_word_agent_query_prompt_string)]
-    )
+    with get_openai_callback() as cb:
+        response = llm4(
+            [HumanMessage(content=proactive_rare_word_agent_query_prompt_string)]
+        )
+        # print("GPT4 query cost:")
+        # print(cb.total_cost)
+        gpt4cost = cb.total_cost
 
     print("Proactive meta agent response", response)
 
     try:
         res = proactive_rare_word_agent_query_parser.parse(response.content)
         # we still have unknown_entities to search for but we will do them next time
+
+        if len(res.entities) > 0:
+            gatekeeper_accuracy_average(100)
+        else:
+            gatekeeper_accuracy_average(0)
+
+        track_gpt4_time_and_cost(time.time() - gpt4start, gpt4cost)
+        print("GPT4 TIME: " + str(time.time() - gpt4start))
+        
+        image_start = time.time()
         res = search_entities(res.entities)
+        track_image_time(time.time() - image_start)
+        print("IMAGE TIME: " + str(time.time() - image_start))
         return res
     except OutputParserException:
         return None

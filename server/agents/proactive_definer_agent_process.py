@@ -9,6 +9,10 @@ from DatabaseHandler import DatabaseHandler
 from agents.proactive_definer_agent import run_proactive_definer_agent
 from logger_config import logger
 
+from definer_stats.stat_tracker import *
+
+time_between_iterations = 3
+
 def proactive_definer_processing_loop():
     print("START DEFINER PROCESSING LOOP")
     dbHandler = DatabaseHandler(parent_handler=False)
@@ -23,16 +27,16 @@ def proactive_definer_processing_loop():
             continue
         
         #delay between loops
-        time.sleep(10)
+        time.sleep(time_between_iterations)
 
         try:
             pLoopStartTime = time.time()
             # Check for new transcripts
             print("RUNNING DEFINER LOOP")
-            newTranscripts = dbHandler.get_recent_transcripts_from_last_nseconds_for_all_users(n=20)
+            newTranscripts = dbHandler.get_recent_transcripts_from_last_nseconds_for_all_users(n=time_between_iterations*2)
 
             for transcript in newTranscripts:
-                if len(transcript['text']) < 60: #80: # Around 20-30 words, like on a sentence level
+                if len(transcript['text']) < 40: #80: # Around 20-30 words, like on a sentence level
                     print("Transcript too short, skipping...")
                     continue
                 print("Run rare entity definition with... user_id: '{}' ... text: '{}'".format(
@@ -47,7 +51,13 @@ def proactive_definer_processing_loop():
                         definition_history))
 
                     # run proactive meta agent, get definition
+                    startt = time.time()
                     entities = run_proactive_definer_agent(transcript['text'], definitions_history=definition_history)
+                    endt = time.time()
+                    if entities:
+                        print("ENTITIES = " + str(len(entities)))
+                        print("TIME TAKEN = " + str(endt - startt) + " SECONDS!!!")
+                        track_time_average(endt-startt)
                     
                     if entities is not None:
                         entities = [entity for entity in entities if entity is not None]
