@@ -889,6 +889,12 @@ public class ConvoscopeService extends SmartGlassesAndroidService {
                 .putString(context.getResources().getString(R.string.SHARED_PREF_TARGET_LANGUAGE), targetLanguageString)
                 .apply();
     }
+    public static void saveChosenSourceLanguage(Context context, String sourceLanguageString) {
+        PreferenceManager.getDefaultSharedPreferences(context)
+                .edit()
+                .putString(context.getResources().getString(R.string.SHARED_PREF_SOURCE_LANGUAGE), sourceLanguageString)
+                .apply();
+    }
 
     public static String getChosenTargetLanguage(Context context) {
         String targetLanguageString = PreferenceManager.getDefaultSharedPreferences(context).getString(context.getResources().getString(R.string.SHARED_PREF_TARGET_LANGUAGE), "");
@@ -897,6 +903,15 @@ public class ConvoscopeService extends SmartGlassesAndroidService {
             targetLanguageString = "Russian";
         }
         return targetLanguageString;
+    }
+
+    public static String getChosenSourceLanguage(Context context) {
+        String sourceLanguageString = PreferenceManager.getDefaultSharedPreferences(context).getString(context.getResources().getString(R.string.SHARED_PREF_SOURCE_LANGUAGE), "");
+        if (sourceLanguageString.equals("")){
+            saveChosenTargetLanguage(context, "Russian");
+            sourceLanguageString = "Russian";
+        }
+        return sourceLanguageString;
     }
 
     public void changeMode(String currentModeString){
@@ -945,6 +960,16 @@ public class ConvoscopeService extends SmartGlassesAndroidService {
         try{
             JSONObject settingsObj = new JSONObject();
             settingsObj.put("target_language", targetLanguage);
+            sendSettings(settingsObj);
+        } catch (JSONException e){
+            e.printStackTrace();
+        }
+    }
+    public void updateSourceLanguageOnBackend(Context context){
+        String sourceLanguage = getChosenSourceLanguage(context);
+        try{
+            JSONObject settingsObj = new JSONObject();
+            settingsObj.put("source_language", sourceLanguage);
             sendSettings(settingsObj);
         } catch (JSONException e){
             e.printStackTrace();

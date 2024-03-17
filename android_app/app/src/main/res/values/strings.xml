@@ -42,6 +42,8 @@
   <string name="DEFAULT_COMMAND_SET_SHARED_PREF_KEY">default_command_set_key</string>
 
   <string name="SHARED_PREF_ASR_KEY">shared_pref_api_key</string>
-<string name="SHARED_PREF_TARGET_LANGUAGE">shared_pref_target_language</string>
-<string name="SHARED_PREF_CURRENT_MODE">shared_pref_current_mode</string>
+    <string name="SHARED_PREF_TARGET_LANGUAGE">shared_pref_target_language</string>
+    <string name="SHARED_PREF_SOURCE_LANGUAGE">shared_pref_source_language</string>
+    <string name="SHARED_PREF_CURRENT_MODE">shared_pref_current_mode</string>
+
 </resources>

@@ -40,7 +40,7 @@ def language_learning_agent_processing_loop():
                 #get users target language
                 target_language = dbHandler.get_user_option_value(transcript['user_id'], "target_language")
                 #print("GOT TARGET LANGUAGE: " + target_language)
-
+                source_language = dbHandler.get_user_option_value(transcript['user_id'], "source_language")
                 #get the transcription language
                 #print(transcript)
                 transcribe_language = transcript["transcribe_language"]
@@ -55,15 +55,15 @@ def language_learning_agent_processing_loop():
                 #print(live_translate_word_history)
 
                 #run the language learning agent
-                words_to_show = run_language_learning_agent(transcript['text'], word_frequency_percentiles, target_language, transcribe_language, live_translate_word_history)
+                words_to_show = run_language_learning_agent(transcript['text'], word_frequency_percentiles, target_language, transcribe_language, source_language, live_translate_word_history)
                 loop_time = time.time() - ctime
                 #print(f"RAN LL IN : {loop_time}")
                 #print(words_to_show)
 
                 if words_to_show:
                     final_words_to_show = list(filter(None, words_to_show))
-                    #print("WORDS TO SHOW")
-                    #print(final_words_to_show)
+                    print("WORDS TO SHOW")
+                    print(final_words_to_show)
                     dbHandler.add_language_learning_words_to_show_for_user(transcript['user_id'], final_words_to_show)
 
         except Exception as e:

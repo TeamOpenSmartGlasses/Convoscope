@@ -216,6 +216,43 @@ public class SettingsUi extends Fragment {
             }
         });
 
+        //setup source sourceLanguage spinner
+        Spinner sourceLanguageSpinner = view.findViewById(R.id.sourceLanguageSpinner);
+        ArrayAdapter<CharSequence> slAdapter = ArrayAdapter.createFromResource(mContext,
+                R.array.language_options, android.R.layout.simple_spinner_item);
+        slAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        sourceLanguageSpinner.setAdapter(slAdapter);
+
+        // Retrieve the saved source sourceLanguage
+        String savedSourceLanguage = ((MainActivity)getActivity()).mService.getChosenSourceLanguage(mContext);
+
+        // Find the position of the saved sourceLanguage in the adapter
+        int sourceLanguageSpinnerPosition = slAdapter.getPosition(savedSourceLanguage);
+
+        // Set the Spinner to show the saved sourceLanguage
+        sourceLanguageSpinner.setSelection(sourceLanguageSpinnerPosition);
+
+        sourceLanguageSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            boolean initSourceLanguageSetup = true;
+
+            @Override
+            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                if (initSourceLanguageSetup){
+                    initSourceLanguageSetup = false;
+                    return;
+                }
+                String selectedLanguage = parent.getItemAtPosition(position).toString();
+                // Save the selected targetLanguage as the new default
+                Log.d(TAG, "SOURCE LANGUAGE SPINNER CHANGED");
+                ((MainActivity)getActivity()).mService.saveChosenSourceLanguage(mContext, selectedLanguage);
+                ((MainActivity)getActivity()).mService.updateSourceLanguageOnBackend(mContext);
+            }
+
+            @Override
+            public void onNothingSelected(AdapterView<?> parent) {
+                // Another interface callback
+            }
+        });
     }
 
     public void sendTestCard(){

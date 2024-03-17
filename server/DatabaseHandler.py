@@ -151,6 +151,7 @@ class DatabaseHandler:
                  "options": {
                      "enable_agent_proactive_definer_images": True,
                      "target_language": "Russian",
+                     "source_language": "English",
                  },
                  "transcripts": [],
                  "ui_list": [],
