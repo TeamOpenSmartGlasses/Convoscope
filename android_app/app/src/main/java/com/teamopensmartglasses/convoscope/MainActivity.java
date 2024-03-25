@@ -373,8 +373,8 @@ public class MainActivity extends AppCompatActivity {
     public String getCurrentMode(Context context) {
         String currentModeString = PreferenceManager.getDefaultSharedPreferences(context).getString(context.getResources().getString(R.string.SHARED_PREF_CURRENT_MODE), "");
         if (currentModeString.equals("")){
-            saveCurrentMode(context, "Proactive Agents");
-            currentModeString = "Proactive Agents";
+            saveCurrentMode(context, "Language Learning");
+            currentModeString = "Language Learning";
         }
         return currentModeString;
     }

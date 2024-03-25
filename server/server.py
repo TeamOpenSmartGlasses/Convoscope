@@ -76,6 +76,21 @@ async def chat_handler(request):
     return web.Response(text=json.dumps({'success': True, 'message': message}), status=200)
 
 
+#handle new diarization data 
+async def chat_diarization(request):
+    body = await request.json()
+    transcript_meta_data = body.get('transcript_meta_data')
+    device_id = body.get('deviceId')
+    id_token = body.get('Authorization')
+    user_id = await verify_id_token(id_token)
+    if user_id is None:
+        raise web.HTTPUnauthorized()
+
+    success = db_handler.save_deepgram_transcript_for_user(user_id=user_id, device_id=device_id, deepgram_obj=transcript_meta_data, transcribe_language="Unknown")
+
+    return web.Response(text=json.dumps({'success': True, 'message': "good stuff yo"}), status=200)
+
+
 async def start_recording_handler(request):
     body = await request.json()
     user_id = body.get('userId')
@@ -178,76 +193,6 @@ async def button_handler(request):
         return web.Response(text=json.dumps({'message': "button up activity detected"}), status=200)
     else:
         return web.Response(text=json.dumps({'message': "button up activity detected"}), status=200)
-
-
-# run cse/definer tools for subscribed users in background every n ms if there is fresh data to run on
-#def cse_loop():
-#    print("START CSE PROCESSING LOOP")
-#
-#    # setup things we need for processing
-#    db_handler = DatabaseHandler(parent_handler=False)
-#    relevance_filter = RelevanceFilter(db_handler=db_handler)
-#    cse = ContextualSearchEngine(db_handler=db_handler)
-#
-#    #then run the main loop
-#    while True:
-#        if not db_handler.ready:
-#            print("db_handler not ready")
-#            time.sleep(0.1)
-#            continue
-#
-#        loop_start_time = time.time()
-#        p_loop_start_time = time.time()
-#
-#        try:
-#            p_loop_start_time = time.time()
-#            # Check for new transcripts
-#            new_transcripts = db_handler.get_new_cse_transcripts_for_all_users(
-#                combine_transcripts=True, delete_after=False)
-#
-#            if new_transcripts is None or new_transcripts == []:
-#                print("---------- No transcripts to run on for this cse_loop run...")
-#
-#            for transcript in new_transcripts:   
-#                print("Run CSE with... user_id: '{}' ... text: '{}'".format(
-#                    transcript['user_id'], transcript['text']))
-#                cse_start_time = time.time()
-#
-#                cse_responses = cse.custom_data_proactive_search(
-#                    transcript['user_id'], transcript['text'])
-#
-#                cse_end_time = time.time()
-#                # print("=== CSE completed in {} seconds ===".format(
-#                #     round(cse_end_time - cse_start_time, 2)))
-#
-#                #filter responses with relevance filter, then save CSE results to the database
-#                cse_responses_filtered = list()
-#                if cse_responses:
-#                    cse_responses_filtered = relevance_filter.should_display_result_based_on_context(
-#                        transcript["user_id"], cse_responses, transcript["text"]
-#                    )
-#
-#                    final_cse_responses = [cse_response for cse_response in cse_responses if cse_response["name"] in cse_responses_filtered]
-#                    # print("=== CSE RESPONSES FILTERED: {} ===".format(final_cse_responses))
-#
-#                    db_handler.add_cse_results_for_user(
-#                        transcript["user_id"], final_cse_responses
-#                    )
-#        except Exception as e:
-#            cse_responses = None
-#            print("Exception in CSE...:")
-#            print(e)
-#            traceback.print_exc()
-#        finally:
-#            p_loop_end_time = time.time()
-#            # print("=== processing_loop completed in {} seconds overall ===".format(
-#            #     round(p_loop_end_time - p_loop_start_time, 2)))
-#
-#        loop_run_period = 1.5 #run the loop this often
-#        while (time.time() - loop_start_time) < loop_run_period: #wait until loop_run_period has passed before running this again
-#            time.sleep(0.2)
-#frontends poll this to get the results from our processing of their transcripts
-
 
 async def ui_poll_handler(request, minutes=0.5):
     # parse request
@@ -584,6 +529,7 @@ if __name__ == '__main__':
             web.get('/protected', protected_route),
             web.get('/image', return_image_handler),
             web.post('/chat', chat_handler),
+            web.post('/chat_diarization', chat_diarization),
             web.post('/button_event', button_handler),
             web.post('/ui_poll', ui_poll_handler),
             web.post('/upload_userdata', upload_user_data_handler),

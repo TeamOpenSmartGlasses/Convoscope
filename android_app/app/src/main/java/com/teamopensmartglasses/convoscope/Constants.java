@@ -16,6 +16,7 @@ public class Constants {
 
     //endpoints
     public static final String LLM_QUERY_ENDPOINT = "/chat";
+    public static final String DIARIZE_QUERY_ENDPOINT = "/chat_diarization";
     public static final String GEOLOCATION_STREAM_ENDPOINT = "/gps_location";
     public static final String BUTTON_EVENT_ENDPOINT = "/button_event";
     public static final String UI_POLL_ENDPOINT = "/ui_poll";

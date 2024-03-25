@@ -100,6 +100,7 @@ public class SettingsUi extends Fragment {
 
         //find out the current ASR state, remember it
         ASR_FRAMEWORKS asrFramework = ConvoscopeService.getChosenAsrFramework(mContext);
+//        ConvoscopeService.saveChosenAsrFramework(mContext, ASR_FRAMEWORKS.GOOGLE_ASR_FRAMEWORK);
         ConvoscopeService.saveChosenAsrFramework(mContext, ASR_FRAMEWORKS.GOOGLE_ASR_FRAMEWORK);
 //        switchGoogleAsr.setChecked(asrFramework == ASR_FRAMEWORKS.GOOGLE_ASR_FRAMEWORK);
 //

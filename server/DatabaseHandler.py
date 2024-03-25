@@ -40,6 +40,7 @@ class DatabaseHandler:
             print("Pinged your deployment. You successfully connected to MongoDB!")
 
             self.init_users_collection()
+            self.init_transcripts_collection()
             self.init_cache_collection()
             self.init_insights_collections()
             self.init_ratings_collection()
@@ -59,6 +60,11 @@ class DatabaseHandler:
         self.active_user_db = self.client['active_users']
         self.active_user_collection = self.get_collection(
             self.active_user_db, 'active_users', wipe=clear_users_on_start)
+
+    def init_transcripts_collection(self):
+        self.transcripts_db = self.client['transcripts']
+        self.transcripts_collection = self.get_collection(
+            self.transcripts_db, 'transcripts', wipe=clear_users_on_start)
 
     def init_cache_collection(self):
         self.cache_db = self.client['cache']
@@ -153,8 +159,6 @@ class DatabaseHandler:
                  "final_transcripts": [],
                  "last_wake_word_time": -1,
                  "last_recording_start_time": -1,
-                 "cse_consumed_transcript_id": -1,
-                 "cse_consumed_transcript_idx": 0,
                  "settings": {
                      "enable_agent_proactive_definer_images": True,
                      "should_update_settings": False,
@@ -278,10 +282,43 @@ class DatabaseHandler:
     def get_latest_transcript_from_user_obj(self, user_obj):
         if user_obj['latest_intermediate_transcript']['timestamp'] != -1:
             return user_obj['latest_intermediate_transcript']
+        ### TODO: HACKATHON
         elif user_obj['final_transcripts']:
             return user_obj['final_transcripts'][-1]
         else:
             return None
+        # user_transcripts = self.transcripts_collection.find_one({"user_id": user_obj['user_id']})
+        # if user_transcripts and "final_transcripts" in user_transcripts:
+        #     return user_transcripts["final_transcripts"][-1]
+    
+        return None
+
+    def save_deepgram_transcript_for_user(self, user_id, device_id, deepgram_obj, transcribe_language):
+        if not deepgram_obj:
+            return
+        
+        timestamp = time.time()
+
+        # Format deepgram object for db
+        transcript_objs = []
+        for word_info in deepgram_obj["words"]:
+            if (len(transcript_objs) == 0) or (word_info["speaker"] != transcript_objs[-1]["speaker"]):
+                new_transcript_obj = {
+                                    "device_id": device_id,
+                                    "timestamp": timestamp, 
+                                    "text": word_info["word"], 
+                                    "speaker": word_info["speaker"],
+                                    "transcribe_language": transcribe_language}
+                transcript_objs.append(new_transcript_obj)
+            else:
+                # print("PREV TRANSCRIPT: " + str(transcript_objs[-1]))
+                # print("NEW WORD: " + str(word_info))
+                transcript_objs[-1]["text"] += " " + word_info["word"]
+
+        filter = {"user_id": user_id}
+        update = {"$push": {"final_transcripts": { "$each": transcript_objs }}}
+        res = self.transcripts_collection.update_one(filter=filter, update=update, upsert=True)
+        return res
 
     def save_transcript_for_user(self, user_id, device_id, text, is_final, transcribe_language):
         if text == "":
@@ -300,25 +337,18 @@ class DatabaseHandler:
         self.purge_old_transcripts_for_user_id(user_id)
 
         if is_final:
-            # Save to `final_transcripts` database with id `my_new_id`
-            filter = {"user_id": user_id}
-            update = {"$push": {"final_transcripts": transcript}}
-            self.user_collection.update_one(filter=filter, update=update)
-
-            # Set `latest_intermediate_transcript` to empty string and timestamp -1
-            update = {
-                "$set": {"latest_intermediate_transcript": self.empty_transcript}}
-            self.user_collection.update_one(filter=filter, update=update)
-
-            # If `cse_consumed_transcript_id` == -1:
-            # Set `cse_consumed_transcript_id` = `my_new_id`
-            # `cse_consumed_transcript_idx` stays the same
-            if user['cse_consumed_transcript_id'] == -1:
-                update = {
-                    "$set": {"cse_consumed_transcript_id": transcript['uuid']}}
-                self.user_collection.update_one(filter=filter, update=update)
+            # if user['cse_consumed_transcript_id'] == -1:
+            #     filter = {"user_id": user_id}
+            #     update = {
+            #         "$set": {"cse_consumed_transcript_id": transcript['uuid']}}
+            #     self.user_collection.update_one(filter=filter, update=update)
+            print()
+            
+            # TODO: HACKATHON
+            # filter = {"user_id": user_id}
+            # update = {"$set": {"latest_intermediate_transcript": self.empty_transcript}}
+            # self.user_collection.update_one(filter=filter, update=update)
         else:
-            # Save to `latest_intermediate_transcript` field in database - text and timestamp
             filter = {"user_id": user_id}
             update = {"$set": {"latest_intermediate_transcript": transcript}}
             self.user_collection.update_one(filter=filter, update=update)
@@ -333,9 +363,12 @@ class DatabaseHandler:
         return user
 
     def get_all_transcripts_for_user(self, user_id, delete_after=False):
-        self.create_user_if_not_exists(user_id)
+        transcripts = []
         user = self.get_user(user_id)
-        transcripts = user['final_transcripts']
+        user_transcripts = self.transcripts_collection.find_one({"user_id": user_id})
+        if user_transcripts and "final_transcripts" in user_transcripts:
+            transcripts = user_transcripts["final_transcripts"]
+
         if user['latest_intermediate_transcript']['text']:
             transcripts.append(user['latest_intermediate_transcript'])
         return transcripts
@@ -356,164 +389,23 @@ class DatabaseHandler:
 
         return text
 
-    def get_new_cse_transcripts_for_user(self, user_id, delete_after=False):
-        user = self.get_user(user_id)
-        unconsumed_transcripts = []
-
-        if user['cse_consumed_transcript_id'] != -1:
-            # Get the transcript with ID `cse_consumed_transcript_id`, get the last part of it (anything after `cse_consumed_transcript_idx`)
-            first_transcript = None
-
-            # OPTIMIZATION TODO:
-            # This will keep growing as the user generates final transcripts. Need to iterate only for recentish transcripts here.
-            for index, t in enumerate(user['final_transcripts']):
-                # Get the first unconsumed final
-                if t['uuid'] == user['cse_consumed_transcript_id']:
-                    first_transcript = t
-
-                    # BUG : Start index off by one
-                    start_index = user['cse_consumed_transcript_idx']
-
-                    # ensure start_index points to the beginning of a word
-                    start_index = self.find_closest_start_word_index(
-                        first_transcript['text'], start_index)
-
-                    # backslide
-                    most_recent_final_text = self.combine_text_from_transcripts(
-                        user['final_transcripts'][:index])
-                    previous_text_to_backslide = most_recent_final_text + \
-                        " " + first_transcript['text'][:start_index]
-                    # most_recent_final_text = user['final_transcripts'][index - 1]['text'] if index > 0 else ""
-                    # previous_text_to_backslide = most_recent_final_text + " " + first_transcript['text'][:start_index]
-                    backslide_word_list = previous_text_to_backslide.strip().split()
-                    backslide_words = ' '.join(
-                        backslide_word_list[-(self.backslide-len(backslide_word_list)):])
-
-                    words_from_start = first_transcript['text'][start_index:].strip(
-                    )
-                    first_transcript['text'] = backslide_words + " " + \
-                        words_from_start if words_from_start else backslide_words
-
-                    if first_transcript['text'] != "":
-                        unconsumed_transcripts.append(first_transcript)
-                    continue
-
-                # Get any subsequent unconsumed final
-                if first_transcript != None:
-                    # (any transcript newer than cse_consumed_transcript_id)
-                    # Append any transcript from `final_transcripts` that is newer in time than the `cse_consumed_transcript_id` transcript
-                    unconsumed_transcripts.append(t)
-
-            # Append `latest_intermediate_transcript`
-            if user['latest_intermediate_transcript']['text'] != "":
-                unconsumed_transcripts.append(
-                    user['latest_intermediate_transcript'])
-            index_offset = 0
-        else:
-            # OPTIMIZATION TODO: This block gets run for every user for every second. Need to fix this.
-
-            # if the latest intermediate is old/stale, then the frontend client stops streaming transcripts before giving us a final, so make it final and drop it
-            stale_intermediate_time = 10
-            if (user['latest_intermediate_transcript']['timestamp'] != -1) and ((time.time() - user['latest_intermediate_transcript']['timestamp']) > stale_intermediate_time):
-                print("~~~~~~~~~~~~~~ Killing stale intermediate transcript")
-                filter = {"user_id": user_id}
-                # Set `latest_intermediate_transcript` to empty string and timestamp -1
-                update = {
-                    "$set": {"latest_intermediate_transcript": self.empty_transcript}}
-                self.user_collection.update_one(filter=filter, update=update)
-
-            # Get part `latest_intermediate_transcript` after `cse_consumed_transcript_idx` index
-            start_index = user['cse_consumed_transcript_idx']
-            t = user['latest_intermediate_transcript']
-
-            # ensure start_index points to the beginning of a word
-            start_index = self.find_closest_start_word_index(
-                t['text'], start_index)
-
-            # Make sure protect against if intermediate transcript gets smaller
-            if (len(t['text']) - 1) > start_index:
-                # backslide
-                most_recent_final_text = self.combine_text_from_transcripts(
-                    user['final_transcripts'])
-                previous_text_to_backslide = most_recent_final_text + \
-                    " " + t['text'][:start_index]
-                # refactor2
-                # most_recent_final_text = user['final_transcripts'][-1]['text'] if len(user['final_transcripts']) > 0 else ""
-                # previous_text_to_backslide = most_recent_final_text + " " + t['text'][:start_index]
-                backslide_word_list = previous_text_to_backslide.strip().split()
-                backslide_words = ' '.join(
-                    backslide_word_list[-(self.backslide-len(backslide_word_list)):])
-
-                words_from_start = t['text'][start_index:].strip()
-                t['text'] = backslide_words + " " + words_from_start
-                unconsumed_transcripts.append(t)
-            index_offset = start_index
-
-        # Update step
-        # `cse_consumed_transcript_id` = -1
-        # `cse_consumed_transcript_idx` to index of most recent transcript we consumed in 1.
-        if len(unconsumed_transcripts) > 0:
-            # print("NEW INDEX: LEN UNCONSUMED: {}, LEN OFFSET: {}".format(str(len(unconsumed_transcripts[-1]['text'])), str(index_offset)))
-            new_index = len(unconsumed_transcripts[-1]['text']) + index_offset
-        else:
-            new_index = 0
-
-        filter = {"user_id": user_id}
-        update = {"$set": {"cse_consumed_transcript_id": -
-                           1, "cse_consumed_transcript_idx": new_index}}
-        self.user_collection.update_one(filter=filter, update=update)
-        return unconsumed_transcripts
-
-    def update_cse_consumed_transcript_idx_for_user(self, user_id, new_index):
-        filter = {"user_id": user_id}
-        update = {"$set": {"cse_consumed_transcript_idx": new_index}}
-        self.user_collection.update_one(filter=filter, update=update)
-
-    def get_final_transcript_by_uuid(self, uuid):
-        filter = {"final_transcripts.uuid": uuid}
-        return self.user_collection.find_one(filter)
-
-    def get_new_cse_transcripts_for_user_as_string(self, user_id, delete_after=False):
-        transcripts = self.get_new_cse_transcripts_for_user(
-            user_id, delete_after=delete_after)
-        the_string = ""
-        for t in transcripts:
-            the_string += t['text'] + ' '
-        return the_string.strip()
-
-    def delete_all_transcripts_for_user(self, user_id):
-        filter = {"user_id": user_id}
-        update = {"$set": {"final_transcripts": []}}
-        self.user_collection.update_one(filter=filter, update=update)
-
-    def get_new_cse_transcripts_for_all_users(self, combine_transcripts=False, delete_after=False):
-        users = self.user_collection.find()
-        transcripts = []
-        for user in users:
-            user_id = user['user_id']
-            if combine_transcripts:
-                transcript_string = self.get_new_cse_transcripts_for_user_as_string(
-                    user_id, delete_after=delete_after)
-                if transcript_string:
-                    transcripts.append(
-                        {'user_id': user_id, 'text': transcript_string})
-            else:
-                transcripts.extend(self.get_new_cse_transcripts_for_user(
-                    user_id, delete_after=delete_after))
-
-        return transcripts
-
-    def get_recent_transcripts_from_last_nseconds_for_all_users(self, n=30, users_list=None):
+    def get_recent_transcripts_from_last_nseconds_for_all_users(self, n=30, users_list=None, stringify = True):
         users = self.user_collection.find() if users_list is None else users_list
         transcripts = []
         for user in users:
             user_id = user['user_id']
-            transcript_string, transcribe_language, device_id = self.get_transcripts_from_last_nseconds_for_user_as_string(
-                user_id, n)
-            if transcript_string:
-                transcripts.append(
-                        {'user_id': user_id, 'device_id': device_id, 'text': transcript_string, 'transcribe_language': transcribe_language})
-
+            if stringify:
+                transcript_string, transcribe_language, device_id = self.get_transcripts_from_last_nseconds_for_user_as_string(
+                    user_id, n)
+                if transcript_string:
+                    transcripts.append(
+                            {'user_id': user_id, 'device_id': device_id, 'text': transcript_string, 'transcribe_language': transcribe_language})
+            else:
+                transcript_list = self.get_transcripts_from_last_nseconds_for_user(
+                    user_id, n)
+                if transcript_list:
+                    transcripts.append(
+                            {'user_id': user_id, 'transcripts': transcript_list})
         return transcripts
 
     def get_transcripts_from_last_nseconds_for_user(self, user_id, n=30, transcript_list=None):
