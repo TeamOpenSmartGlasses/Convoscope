@@ -34,3 +34,4 @@ google-auth-oauthlib
 openpyxl
 pypinyin
 llmlingua
+jieba

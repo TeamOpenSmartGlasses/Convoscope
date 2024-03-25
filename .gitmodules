@@ -4,3 +4,6 @@
 [submodule "server/word_frequency_lists"]
 	path = server/word_frequency_lists
 	url = git@github.com:hermitdave/FrequencyWords.git
+[submodule "android_app/android-hidden-camera"]
+	path = android_app/android-hidden-camera
+	url = git@github.com:CaydenPierce/android-hidden-camera.git

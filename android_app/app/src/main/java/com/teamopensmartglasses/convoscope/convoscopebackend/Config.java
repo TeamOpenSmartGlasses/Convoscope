@@ -8,5 +8,5 @@ public class Config {
 //    public static final String serverUrl = "http://192.168.7.117:8080";
 
     public static final Boolean useDevServer = true;
-    public static final String devServerUrl = "/dev2";
+    public static final String devServerUrl = "/dev3";
 }

@@ -69,7 +69,7 @@ def explicit_agent_processing_loop():
                 # Because last_wake_word_time is set when the wake word is found, and NOT when the wake word actually occured,
                 # we need to add a high number such as force_query_time to offset that inaccuracy
                 num_seconds_to_get = round(current_time - last_wake_word_time) + force_query_time
-                text, transcribe_language, device_id = dbHandler.get_transcripts_from_last_nseconds_for_user_as_string(user_id=user['user_id'], n=num_seconds_to_get)#, transcript_list=user['final_transcripts'])
+                text, transcribe_language, device_id = dbHandler.get_transcripts_from_last_nseconds_for_user_as_string(user_id=user['user_id'], n=num_seconds_to_get)
 
                 # Pull query out of the text
                 query = get_explicit_query_from_transcript(text)

@@ -101,12 +101,11 @@
           android:text="ADHD Glasses" />
 
       <RadioButton
-          android:id="@+id/radioButtonWalkNGrok"
+          android:id="@+id/radioButtonSpeechCoach"
           android:layout_width="match_parent"
           android:layout_height="38dp"
-          android:enabled="false"
-          android:buttonTint="@color/bubbleColor"
-          android:text="Walk 'n' Grok" />
+          android:buttonTint="@color/colorAccent"
+          android:text="Speech Coach" />
 
     </RadioGroup>
 

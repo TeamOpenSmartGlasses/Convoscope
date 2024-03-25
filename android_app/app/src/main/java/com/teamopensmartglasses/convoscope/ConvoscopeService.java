@@ -2,6 +2,7 @@ package com.teamopensmartglasses.convoscope;
 
 import static com.firebase.ui.auth.AuthUI.getApplicationContext;
 import static com.teamopensmartglasses.convoscope.Constants.BUTTON_EVENT_ENDPOINT;
+import static com.teamopensmartglasses.convoscope.Constants.DIARIZE_QUERY_ENDPOINT;
 import static com.teamopensmartglasses.convoscope.Constants.UI_POLL_ENDPOINT;
 import static com.teamopensmartglasses.convoscope.Constants.GEOLOCATION_STREAM_ENDPOINT;
 import static com.teamopensmartglasses.convoscope.Constants.LLM_QUERY_ENDPOINT;
@@ -17,13 +18,17 @@ import static com.teamopensmartglasses.convoscope.Constants.languageLearningKey;
 import static com.teamopensmartglasses.convoscope.Constants.llContextConvoKey;
 import static com.teamopensmartglasses.convoscope.Constants.proactiveAgentResultsKey;
 import static com.teamopensmartglasses.convoscope.Constants.shouldUpdateSettingsKey;
+import static com.teamopensmartglasses.convoscope.Constants.speechCoachAgentKey;
 import static com.teamopensmartglasses.convoscope.Constants.wakeWordTimeKey;
 
 import android.content.Context;
 import android.content.Intent;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
+import android.util.Base64;
 import android.util.Log;
 
 import androidx.annotation.NonNull;
@@ -39,6 +44,8 @@ import com.teamopensmartglasses.convoscope.events.GoogleAuthSucceedEvent;
 import com.teamopensmartglasses.convoscope.convoscopebackend.BackendServerComms;
 import com.teamopensmartglasses.convoscope.convoscopebackend.VolleyJsonCallback;
 import com.teamopensmartglasses.convoscope.ui.ConvoscopeUi;
+import com.teamopensmartglasses.smartglassesmanager.eventbusmessages.DiarizationOutputEvent;
+import com.teamopensmartglasses.smartglassesmanager.eventbusmessages.GlassesPovImageEvent;
 import com.teamopensmartglasses.smartglassesmanager.eventbusmessages.GlassesTapOutputEvent;
 import com.teamopensmartglasses.smartglassesmanager.eventbusmessages.SmartRingButtonOutputEvent;
 import com.teamopensmartglasses.smartglassesmanager.eventbusmessages.SpeechRecOutputEvent;
@@ -58,6 +65,7 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 import com.teamopensmartglasses.smartglassesmanager.SmartGlassesAndroidService;
+import com.teamopensmartglasses.smartglassesmanager.speechrecognition.ASR_FRAMEWORKS;
 import com.teamopensmartglasses.smartglassesmanager.supportedglasses.SmartGlassesOperatingSystem;
 
 public class ConvoscopeService extends SmartGlassesAndroidService {
@@ -160,6 +168,9 @@ public class ConvoscopeService extends SmartGlassesAndroidService {
         setUpUiPolling();
         setUpDisplayQueuePolling();
         setUpLocationSending();
+
+        //setup ASR version
+        ConvoscopeService.saveChosenAsrFramework(this, ASR_FRAMEWORKS.DEEPGRAM_ASR_FRAMEWORK);
 
         //setup mode if not set yet
         getCurrentMode(this);
@@ -331,6 +342,34 @@ public class ConvoscopeService extends SmartGlassesAndroidService {
 
     private Handler debounceHandler = new Handler(Looper.getMainLooper());
     private Runnable debounceRunnable;
+
+    @Subscribe
+    public void onDiarizeData(DiarizationOutputEvent event) {
+        Log.d(TAG, "SENDING DIARIZATION STUFF");
+        try{
+            JSONObject jsonQuery = new JSONObject();
+            jsonQuery.put("transcript_meta_data", event.diarizationData);
+            jsonQuery.put("Authorization", authToken);
+            jsonQuery.put("timestamp", System.currentTimeMillis() / 1000);
+            backendServerComms.restRequest(DIARIZE_QUERY_ENDPOINT, jsonQuery, new VolleyJsonCallback(){
+                @Override
+                public void onSuccess(JSONObject result){
+                    try {
+                        parseSendTranscriptResult(result);
+                    } catch (JSONException e) {
+                        throw new RuntimeException(e);
+                    }
+                }
+                @Override
+                public void onFailure(int code){
+                    Log.d(TAG, "SOME FAILURE HAPPENED (send Diarize Data)");
+                }
+
+            });
+        } catch (JSONException e){
+            e.printStackTrace();
+        }
+    }
 
     @Subscribe
     public void onTranscript(SpeechRecOutputEvent event) {
@@ -660,6 +699,30 @@ public class ConvoscopeService extends SmartGlassesAndroidService {
             //sendUiUpdateSingle(String.join("\n", list));
             sendUiUpdateSingle(dynamicSummary);
             responsesBuffer.add(dynamicSummary);
+        }
+
+        //adhd speech coach results
+        JSONArray speechCoachResults = response.has(speechCoachAgentKey) ? response.getJSONArray(speechCoachAgentKey) : new JSONArray();
+        if (speechCoachResults.length() != 0) {
+            Log.d(TAG, "speech coach RESULTS: ");
+            Log.d(TAG, speechCoachResults.toString());
+
+            if (!clearedScreenYet) {
+                sendHomeScreen();
+                clearedScreenYet = true;
+            }
+
+            Log.d(TAG, speechCoachResults.toString());
+            sendTextWall("Filler Words: " + Double.toString(speechCoachResults.getJSONObject(0).getDouble("percent")) + "%");
+//            sendTextToSpeech("欢迎使用安卓文本到语音转换功能", "chinese");
+//            Log.d(TAG, "GOT THAT ONEEEEEEEE:");
+//            Log.d(TAG, String.join("\n", llResults));
+//            sendUiUpdateSingle(String.join("\n", Arrays.copyOfRange(llResults, llResults.length, 0)));
+//            List<String> list = Arrays.stream(Arrays.copyOfRange(llResults, 0, languageLearningResults.length())).filter(Objects::nonNull).collect(Collectors.toList());
+//            Collections.reverse(list);
+            //sendUiUpdateSingle(String.join("\n", list));
+//            sendUiUpdateSingle(dynamicSummary);
+//            responsesBuffer.add(dynamicSummary);
         }
 
         //language learning
@@ -1033,9 +1096,9 @@ public class ConvoscopeService extends SmartGlassesAndroidService {
     public String getCurrentMode(Context context) {
         String currentModeString = PreferenceManager.getDefaultSharedPreferences(context).getString(context.getResources().getString(R.string.SHARED_PREF_CURRENT_MODE), "");
         if (currentModeString.equals("")){
-            currentModeString = "ADHD Glasses";
+            currentModeString = "Language Learning";
         }
-        saveCurrentMode(context, "Proactive Agents");
+        saveCurrentMode(context, currentModeString);
         return currentModeString;
     }
 
@@ -1243,6 +1306,18 @@ public class ConvoscopeService extends SmartGlassesAndroidService {
             lastGoogleAuthRetryTime = currentTime;
             googleAuthRetryCount++;
         }
+    }
+
+    @Subscribe
+    public void onGlassesPovImage(GlassesPovImageEvent event) {
+        Bitmap image = decodeEncodedImage(event.encodedImgString);
+        long timestamp = event.imageTime;
+    }
+
+    // Method to decode the encoded image back into a Bitmap
+    public Bitmap decodeEncodedImage(String encodedImage) {
+        byte[] decodedBytes = Base64.decode(encodedImage, Base64.DEFAULT);
+        return BitmapFactory.decodeByteArray(decodedBytes, 0, decodedBytes.length);
     }
 
     public void resetGoogleAuthRetryCount() {

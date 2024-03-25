@@ -6,7 +6,7 @@ DEFINE_RARE_WORDS = False
 LLM_FILTER_THRESHOLD = 6
 RELEVANCE_FILTER_TIME = 120 # number of seconds the relevance filter looks back
 
-DEBUG_FORCE_EXPERT_AGENT_RUN = False
+DEBUG_FORCE_EXPERT_AGENT_RUN = True
 
 GPT_4_MODEL = "gpt-4-1106-preview"
 GPT_4_MAX_TOKENS = 2048
@@ -29,10 +29,12 @@ DEFINER_AGENT = 'intelligent_entity_definitions'
 LANGUAGE_LEARNING_AGENT = 'language_learning'
 LL_CONTEXT_CONVO_AGENT = 'll_context_convo'
 ADHD_STMB_AGENT = 'adhd_stmb_agent_summaries'
+SPEECH_AGENT = 'speech_agent'
 
 MODES_FEATURES_MAP = {
     "Proactive Agents": [PROACTIVE_AGENTS, EXPLICIT_AGENT, DEFINER_AGENT],
     "Language Learning": [EXPLICIT_AGENT, LANGUAGE_LEARNING_AGENT, LL_CONTEXT_CONVO_AGENT],
     "Walk'n'Grok": [PROACTIVE_AGENTS, EXPLICIT_AGENT, DEFINER_AGENT],
     "ADHD Glasses": [EXPLICIT_AGENT, ADHD_STMB_AGENT],
+    "Speech Coach": [EXPLICIT_AGENT, SPEECH_AGENT],
 }

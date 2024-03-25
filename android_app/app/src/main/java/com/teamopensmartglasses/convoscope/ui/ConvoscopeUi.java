@@ -248,15 +248,15 @@ public class ConvoscopeUi extends Fragment {
       RadioButton radioButtonProactiveAgents = view.findViewById(R.id.radioButtonProactiveAgents);
       RadioButton radioButtonLanguageLearning = view.findViewById(R.id.radioButtonLanguageLearning);
       RadioButton radioButtonADHDGlasses = view.findViewById(R.id.radioButtonADHDGlasses);
-      RadioButton radioButtonWalkNGrok = view.findViewById(R.id.radioButtonWalkNGrok);
+      RadioButton radioButtonSpeechCoach = view.findViewById(R.id.radioButtonSpeechCoach);
 
       // Set the radio button as active based on the saved string
       if (currentModeString.equals(radioButtonProactiveAgents.getText().toString())) {
         convoscopeModeSelector.check(R.id.radioButtonProactiveAgents);
       } else if (currentModeString.equals(radioButtonLanguageLearning.getText().toString())) {
         convoscopeModeSelector.check(R.id.radioButtonLanguageLearning);
-      } else if (currentModeString.equals(radioButtonWalkNGrok.getText().toString())) {
-        convoscopeModeSelector.check(R.id.radioButtonWalkNGrok);
+      } else if (currentModeString.equals(radioButtonSpeechCoach.getText().toString())) {
+        convoscopeModeSelector.check(R.id.radioButtonSpeechCoach);
       } else if (currentModeString.equals(radioButtonADHDGlasses.getText().toString())) {
         convoscopeModeSelector.check(R.id.radioButtonADHDGlasses);
       }
@@ -276,10 +276,10 @@ public class ConvoscopeUi extends Fragment {
               Log.d(TAG, "LLSG MODE SELECTED");
               ((MainActivity)getActivity()).mService.saveCurrentMode(mContext, "Language Learning");
               break;
-            case R.id.radioButtonWalkNGrok:
+            case R.id.radioButtonSpeechCoach:
               // Note: This case is inactive but structured for completeness
-              Log.d(TAG, "WALK_GROK MODE SELECTED");
-              ((MainActivity)getActivity()).mService.saveCurrentMode(mContext, "Walk'n'Grok");
+              Log.d(TAG, "SPEECH COACH MODE SELECTED");
+              ((MainActivity)getActivity()).mService.saveCurrentMode(mContext, "Speech Coach");
               break;
             case R.id.radioButtonADHDGlasses:
               // Note: This case is inactive but structured for completeness

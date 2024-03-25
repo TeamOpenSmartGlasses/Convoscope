@@ -85,7 +85,6 @@ dependencies {
     implementation 'com.firebaseui:firebase-ui-auth:8.0.2'
     apply plugin: 'com.google.gms.google-services'
 
-
     //for lifecycle service that stays alive forever
     implementation "androidx.lifecycle:lifecycle-extensions:2.2.0"
     annotationProcessor "androidx.lifecycle:lifecycle-compiler:2.2.0"
@@ -101,4 +100,7 @@ dependencies {
 
     //location services
     implementation 'com.google.android.gms:play-services-location:18.0.0'
+
+    //websocket for deepgram
+    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
 }

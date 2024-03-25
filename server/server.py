@@ -4,6 +4,7 @@ warnings.simplefilter(action='ignore', category=FutureWarning)
 from aiohttp import web
 import asyncio
 import math
+import base64
 import uuid
 from aiohttp.web_response import Response
 from pathlib import Path
@@ -34,6 +35,7 @@ from agents.proactive_definer_agent_process import proactive_definer_processing_
 from agents.language_learning_agent_process import language_learning_agent_processing_loop
 from agents.ll_context_convo_agent_process import ll_context_convo_agent_processing_loop
 from agents.adhd_stmb_agent_process import adhd_stmb_agent_processing_loop
+from agents.speech_coach_agent_process import speech_coach_agent_processing_loop
 import agents.wake_words
 from Modules.RelevanceFilter import RelevanceFilter
 
@@ -74,6 +76,21 @@ async def chat_handler(request):
     message = "Sending messages too fast" if not success else ""
 
     return web.Response(text=json.dumps({'success': True, 'message': message}), status=200)
+
+
+#handle new diarization data 
+async def chat_diarization(request):
+    body = await request.json()
+    transcript_meta_data = body.get('transcript_meta_data')
+    device_id = body.get('deviceId')
+    id_token = body.get('Authorization')
+    user_id = await verify_id_token(id_token)
+    if user_id is None:
+        raise web.HTTPUnauthorized()
+
+    success = db_handler.save_deepgram_transcript_for_user(user_id=user_id, device_id=device_id, deepgram_obj=transcript_meta_data, transcribe_language="Unknown")
+
+    return web.Response(text=json.dumps({'success': True, 'message': "good stuff yo"}), status=200)
 
 
 async def start_recording_handler(request):
@@ -179,76 +196,6 @@ async def button_handler(request):
     else:
         return web.Response(text=json.dumps({'message': "button up activity detected"}), status=200)
 
-
-# run cse/definer tools for subscribed users in background every n ms if there is fresh data to run on
-#def cse_loop():
-#    print("START CSE PROCESSING LOOP")
-#
-#    # setup things we need for processing
-#    db_handler = DatabaseHandler(parent_handler=False)
-#    relevance_filter = RelevanceFilter(db_handler=db_handler)
-#    cse = ContextualSearchEngine(db_handler=db_handler)
-#
-#    #then run the main loop
-#    while True:
-#        if not db_handler.ready:
-#            print("db_handler not ready")
-#            time.sleep(0.1)
-#            continue
-#
-#        loop_start_time = time.time()
-#        p_loop_start_time = time.time()
-#
-#        try:
-#            p_loop_start_time = time.time()
-#            # Check for new transcripts
-#            new_transcripts = db_handler.get_new_cse_transcripts_for_all_users(
-#                combine_transcripts=True, delete_after=False)
-#
-#            if new_transcripts is None or new_transcripts == []:
-#                print("---------- No transcripts to run on for this cse_loop run...")
-#
-#            for transcript in new_transcripts:   
-#                print("Run CSE with... user_id: '{}' ... text: '{}'".format(
-#                    transcript['user_id'], transcript['text']))
-#                cse_start_time = time.time()
-#
-#                cse_responses = cse.custom_data_proactive_search(
-#                    transcript['user_id'], transcript['text'])
-#
-#                cse_end_time = time.time()
-#                # print("=== CSE completed in {} seconds ===".format(
-#                #     round(cse_end_time - cse_start_time, 2)))
-#
-#                #filter responses with relevance filter, then save CSE results to the database
-#                cse_responses_filtered = list()
-#                if cse_responses:
-#                    cse_responses_filtered = relevance_filter.should_display_result_based_on_context(
-#                        transcript["user_id"], cse_responses, transcript["text"]
-#                    )
-#
-#                    final_cse_responses = [cse_response for cse_response in cse_responses if cse_response["name"] in cse_responses_filtered]
-#                    # print("=== CSE RESPONSES FILTERED: {} ===".format(final_cse_responses))
-#
-#                    db_handler.add_cse_results_for_user(
-#                        transcript["user_id"], final_cse_responses
-#                    )
-#        except Exception as e:
-#            cse_responses = None
-#            print("Exception in CSE...:")
-#            print(e)
-#            traceback.print_exc()
-#        finally:
-#            p_loop_end_time = time.time()
-#            # print("=== processing_loop completed in {} seconds overall ===".format(
-#            #     round(p_loop_end_time - p_loop_start_time, 2)))
-#
-#        loop_run_period = 1.5 #run the loop this often
-#        while (time.time() - loop_start_time) < loop_run_period: #wait until loop_run_period has passed before running this again
-#            time.sleep(0.2)
-#frontends poll this to get the results from our processing of their transcripts
-
-
 async def ui_poll_handler(request, minutes=0.5):
     # parse request
     body = await request.json()
@@ -312,6 +259,17 @@ async def ui_poll_handler(request, minutes=0.5):
     # ADHD short term memory buffer
     adhd_stmb_agent_results = db_handler.get_adhd_stmb_results_for_user_device(user_id=user_id, device_id=device_id)
     resp["adhd_stmb_agent_results"] = adhd_stmb_agent_results
+
+    # Speech coach
+    speech_coach_agent_results = db_handler.get_percent_filler_words_for_user_device(user_id=user_id, device_id=device_id)
+    resp["speech_coach_agent_results"] = speech_coach_agent_results
+
+    speech_coach_agent_proportion_user_results = db_handler.get_percent_proportion_user_for_user_device(user_id=user_id, device_id=device_id)
+    resp["speech_coach_agent_proportion_user_results"] = speech_coach_agent_proportion_user_results
+
+    speech_coach_agent_understandability_score_results = db_handler.get_understandability_score_user_for_user_device(user_id=user_id, device_id=device_id)
+    resp["speech_coach_agent_understandability_score_results"] = speech_coach_agent_understandability_score_results
+
 
     # tell the frontend to update their local settings if needed
     should_update_settings = db_handler.get_should_update_settings(user_id)
@@ -495,6 +453,35 @@ async def update_gps_location_for_user(request):
     return web.Response(text=json.dumps({'success': True, 'message': "Got your location: {}".format(location)}), status=200)
 
 
+async def pov_image(request):
+    body = await request.json()
+    id_token = body.get('Authorization')
+    user_id = await verify_id_token(id_token)
+    device_id = body.get('deviceId')
+    pov_image = body.get('pov_image')
+
+    if user_id is None:
+        raise web.HTTPUnauthorized()
+
+    # 400 if missing params
+    if not user_id:
+        print("user_id none in update_gps_location_for_user, exiting with error response 400.")
+        return web.Response(text='no userId in request', status=400)
+
+    # Decode the Base64 string to binary data
+    if pov_image:
+        image_data = base64.b64decode(pov_image)
+        # Generate a random filename
+        random_filename = f"image_{uuid.uuid4().hex}.jpg"
+        with open(random_filename, 'wb') as image_file:
+            image_file.write(image_data)
+        print(f"Saved POV image as {random_filename}")
+    else:
+        return web.Response(text='no pov_image in request', status=400)
+
+    return web.Response(text=json.dumps({'success': True, 'message': "Got your POV image"}, status=200))
+
+
 async def rate_result_handler(request):
     body = await request.json()
     id_token = body.get('Authorization')
@@ -560,9 +547,9 @@ if __name__ == '__main__':
     explicit_background_process.start()
 
     # start the language learning app process
-    print("Starting Language Learning Agents process...")
-    language_learning_background_process = multiprocessing.Process(target=language_learning_agent_processing_loop)
-    language_learning_background_process.start()
+    # print("Starting Language Learning Agents process...")
+    # language_learning_background_process = multiprocessing.Process(target=language_learning_agent_processing_loop)
+    # language_learning_background_process.start()
     
     # start the contextual convo language larning app process
     #print("Starting Contextual Convo Language learning app process...")
@@ -574,6 +561,11 @@ if __name__ == '__main__':
     adhd_stmb_background_process = multiprocessing.Process(target=adhd_stmb_agent_processing_loop)
     adhd_stmb_background_process.start()
 
+    # start the contextual convo language larning app process
+    print("Starting SPEECH COACH app process...")
+    speech_coach_background_process = multiprocessing.Process(target=speech_coach_agent_processing_loop)
+    speech_coach_background_process.start()
+
     # setup and run web app
     # CORS allow from all sources
     print("Starting aiohttp server...")
@@ -584,6 +576,7 @@ if __name__ == '__main__':
             web.get('/protected', protected_route),
             web.get('/image', return_image_handler),
             web.post('/chat', chat_handler),
+            web.post('/chat_diarization', chat_diarization),
             web.post('/button_event', button_handler),
             web.post('/ui_poll', ui_poll_handler),
             web.post('/upload_userdata', upload_user_data_handler),
@@ -596,6 +589,7 @@ if __name__ == '__main__':
             web.post('/set_user_settings', set_user_settings),
             web.post('/get_user_settings', get_user_settings),
             web.post('/gps_location', update_gps_location_for_user),
+            web.post('/pov_image', pov_image),
         ]
     )
     cors = aiohttp_cors.setup(app, defaults={
@@ -614,7 +608,9 @@ if __name__ == '__main__':
     proactive_agents_background_process.join()
     intelligent_definer_agent_process.join()
     #cse_process.join()
-    language_learning_background_process.join()
+    # language_learning_background_process.join()
     #ll_context_convo_background_process.join()
     explicit_background_process.join()
     adhd_stmb_background_process.join()
+
+    speech_coach_background_process.join()
