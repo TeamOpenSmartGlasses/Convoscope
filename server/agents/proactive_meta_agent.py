@@ -2,7 +2,6 @@
 from collections import defaultdict
 from agents.expert_agent_configs import default_expert_agent_list
 from agents.agent_utils import format_list_data
-from server_config import openai_api_key
 from constants import DEBUG_FORCE_EXPERT_AGENT_RUN
 from agents.proactive_meta_agent_prompts import proactive_meta_agent_prompt_blueprint, proactive_meta_agent_gatekeeper_prompt_blueprint
 

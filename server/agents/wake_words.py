@@ -32,7 +32,8 @@ def does_text_contain_wake_word(transcript):
 
 
 def get_explicit_query_from_transcript(transcript):
-    transcript_low = transcript.lower()
+    transcript_low = transcript.lower().replace("，", " ").replace(",", "")
+    print(transcript_low)
     for term in explicit_wake_words:
         if term in transcript_low:
             index = transcript_low.rfind(term) + len(term)

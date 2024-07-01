@@ -10,6 +10,7 @@ import uuid
 import logging
 from logger_config import logger
 from constants import TESTING_LL_CONTEXT_CONVO_AGENT, MODES_FEATURES_MAP
+from helpers.time_function_decorator import time_function
 
 
 class DatabaseHandler:
@@ -51,8 +52,11 @@ class DatabaseHandler:
             print(e)
 
     ### INIT ###
-    def set_language_learning_contextual_convo_flag_for_all_users(self, flag_value=False):
+    def set_is_having_language_learning_contextual_convo_flag_for_all_users(self, flag_value=False):
         self.user_collection.update_many({}, {"$set": {"settings.is_having_language_learning_contextual_convo": flag_value}})
+
+    def set_command_start_language_learning_contextual_convo_flag_for_all_users(self, flag_value=False):
+        self.user_collection.update_many({}, {"$set": {"settings.command_start_language_learning_contextual_convo": flag_value}})
 
     def init_users_collection(self):
         self.user_db = self.client['users']
@@ -62,7 +66,8 @@ class DatabaseHandler:
         self.active_user_db = self.client['active_users']
         self.active_user_collection = self.get_collection(
         self.active_user_db, 'active_users', wipe=clear_users_on_start)
-        self.set_language_learning_contextual_convo_flag_for_all_users()
+        self.set_is_having_language_learning_contextual_convo_flag_for_all_users()
+        self.set_command_start_language_learning_contextual_convo_flag_for_all_users()
 
     def init_transcripts_collection(self):
         self.transcripts_db = self.client['transcripts']
@@ -76,8 +81,8 @@ class DatabaseHandler:
 
     def init_insights_collections(self):
         self.results_db = self.client['results']
-        self.cse_results_collection = self.get_collection(
-            self.results_db, 'cse_results', wipe=clear_cache_on_start)
+        self.system_messages_collection = self.get_collection(
+            self.results_db, 'system_messages', wipe=clear_cache_on_start)
         self.agent_explicit_queries_collection = self.get_collection(
             self.results_db, 'agent_explicit_queries', wipe=clear_cache_on_start)
         self.agent_explicit_insights_results_collection = self.get_collection(
@@ -169,6 +174,7 @@ class DatabaseHandler:
                      "dynamic_transcribe_language": "English", #the current dynamic transcribe language that we set momentarily
                      "use_dynamic_transcribe_language": False,
                      "is_having_language_learning_contextual_convo": False,
+                     "command_start_language_learning_contextual_convo": False,
                      "current_mode": "Language Learning",
                      #"current_mode": "Proactive Agents",
                      "enabled_proactive_agents": ["QuestionAnswerer"]
@@ -176,7 +182,7 @@ class DatabaseHandler:
                  "transcripts": [],
                  "ui_list": [],
                  "rating_ids": [],
-                 "cse_result_ids": [],
+                 "system_message_ids": [],
                  "agent_explicit_query_ids": [],
                  "agent_explicit_insights_result_ids": [],
                  "agent_proactive_definer_result_ids": [],
@@ -579,31 +585,25 @@ class DatabaseHandler:
     def get_explicit_insights_history_for_user(self, user_id, device_id=None, should_consume=True, include_consumed=False):
         return self.get_results_for_user_device("agent_explicit_insights_result_ids", user_id, device_id, should_consume, include_consumed)
 
-    ### CSE RESULTS ###
+    ### system_messages ###
 
-    def add_cse_results_for_user(self, user_id, results):
-        if not results:
-            return
-
-        # Add results to relevant results collection
-        self.cse_results_collection.insert_many(results)
-
-        # Add result ids to user
-        result_ids = []
-        for r in results:
-            result_ids.append(r['uuid'])
+    def add_system_message_for_user(self, user_id, message, category=""):
+        message_uuid = str(uuid.uuid4())
+        message_obj = {'timestamp': time.time(),
+                       'uuid': message_uuid, 'message': message, 'category': category}
+        self.system_messages_collection.insert_one(message_obj)
 
         filter = {"user_id": user_id}
-        update = {"$push": {"cse_result_ids": {'$each': result_ids}}}
+        update = {"$push": {"system_message_ids": message_uuid}}
         self.user_collection.update_one(filter=filter, update=update)
 
-    def delete_cse_result_ids_for_user(self, user_id):
+    def delete_system_message_ids_for_user(self, user_id):
         filter = {"user_id": user_id}
-        update = {"$set": {"cse_result_ids": []}}
+        update = {"$set": {"system_message_ids": []}}
         self.user_collection.update_one(filter=filter, update=update)
 
-    def get_cse_results_for_user_device(self, user_id, device_id, should_consume=True, include_consumed=False):
-        return self.get_results_for_user_device("cse_result_ids", user_id, device_id, should_consume, include_consumed)
+    def get_system_messages_for_user_device(self, user_id, device_id, should_consume=True, include_consumed=False):
+        return self.get_results_for_user_device("system_message_ids", user_id, device_id, should_consume, include_consumed)
 
     ### PROACTIVE INSIGHTS ###
 
@@ -680,7 +680,7 @@ class DatabaseHandler:
         return self.get_results_for_user_device("agent_insights_result_ids", user_id, device_id, should_consume, include_consumed)
 
     def get_defined_terms_from_last_nseconds_for_user_device(self, user_id, n=300):
-        consumed_results = self.get_cse_results_for_user_device(
+        consumed_results = self.get_system_messages_for_user_device(
             user_id=user_id, device_id="", should_consume=False, include_consumed=True)
 
         previously_defined_terms = []
@@ -1003,7 +1003,7 @@ class DatabaseHandler:
     # Search all results collections for a specific UUID
     def get_result_from_uuid(self, uuid):
         filter = {"uuid": uuid}
-        res = self.cse_results_collection.find_one(filter, {'_id': 0})
+        res = self.system_messages_collection.find_one(filter, {'_id': 0})
         if res:
             return res
         res = self.agent_explicit_queries_collection.find_one(filter, {
@@ -1048,24 +1048,28 @@ class DatabaseHandler:
         user = self.user_collection.find_one({"user_id": user_id})
 
         if result_type not in user:
-            raise Exception(
-                "Invalid result type: `{}`".format(str(result_type)))
+            raise Exception("Invalid result type: `{}`".format(str(result_type)))
 
         result_ids = user[result_type] if user != None else []
-#        if result_ids != [] and result_type == "topic_shift_result_ids":
-#            print("running get results for user with result_type as " + result_type)
-#            print(result_ids)
+
+        # if result_ids != [] and result_type == "topic_shift_result_ids":
+        #     print("running get results for user with result_type as " + result_type)
+        #     print(result_ids)
+
         already_consumed_ids = [
         ] if include_consumed else self.get_consumed_result_ids_for_user_device(user_id, device_id)
         new_results = []
+
         for uuid in result_ids:
             if uuid not in already_consumed_ids:
                 if should_consume:
                     self.add_consumed_result_id_for_user_device(
                         user_id, device_id, uuid)
                 result = self.get_result_from_uuid(uuid)
+
                 if result is not None:
                     new_results.append(result)
+
         return new_results
 
     def get_consumed_result_ids_for_user_device(self, user_id, device_id):
@@ -1083,22 +1087,6 @@ class DatabaseHandler:
         # "$add_to_set": {"ui_list": device_id}}
         self.user_collection.update_many(filter=filter, update=update)
 
-
-    def add_cse_results_for_user(self, user_id, results):
-        if not results:
-            return
-
-        # Add results to relevant results collection
-        self.cse_results_collection.insert_many(results)
-
-        # Add result ids to user
-        result_ids = []
-        for r in results:
-            result_ids.append(r['uuid'])
-
-        filter = {"user_id": user_id}
-        update = {"$push": {"cse_result_ids": {'$each': result_ids}}}
-        self.user_collection.update_one(filter=filter, update=update)
 
     def add_language_learning_words_to_show_for_user(self, user_id, words):
         for word in words:
@@ -1182,39 +1170,4 @@ class DatabaseHandler:
         self.user_collection.update_one(filter=filter, update=update)
 
     def get_gps_location_results_for_user_device(self, user_id, device_id, should_consume=False, include_consumed=False):
-        return self.get_results_for_user_device("gps_location_result_ids", user_id, device_id, should_consume, include_consumed)
-
-### Function list for developers ###
-#
-# * save_transcript_for_user
-#   => Saves a transcript for a user. User is created if they don't already exist
-#
-# * add_cse_result_for_user
-#   => Saves a cse_result object to a user's object
-#
-# * get_cse_results_for_user_device
-#   => REQUIRES device_id. Returns a list of CSE results that have not been consumed by that device_id yet.
-#   => Once this has been run, the same CSE result will not return again for the same device_id.
-#   => Device is created if it doesn't already exist.
-#
-
-
-"""
-print("BEGIN DB TESTING")
-db = DatabaseHandler()
-db.save_transcript_for_user("alex", "fedora tip", 0, False)
-db.add_cse_result_for_user("alex", {'uuid': '69'})
-res1 = db.get_cse_results_for_user_device('alex', 'pc')
-print('res1 (Should have 1 obj):')
-for r in res1:
-    print(r)
-res2 = db.get_cse_results_for_user_device('alex', 'pc')
-print("res2 (Shouldn't display anything):")
-for r in res2:
-    print(r)
-print('\n\nfinally:')
-z = db.user_collection.find()
-for pp in z:
-    print(pp)
-"""
-
+        return self.get_results_for_user_device("gps_location_result_ids", user_id, None, should_consume, include_consumed) # TODO: chek if device_id can be None

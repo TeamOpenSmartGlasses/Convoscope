@@ -100,9 +100,10 @@ public class SettingsUi extends Fragment {
         //final Switch switchGoogleAsr = view.findViewById(R.id.google_asr_switch);
 
         //find out the current ASR state, remember it
-        ASR_FRAMEWORKS asrFramework = ConvoscopeService.getChosenAsrFramework(mContext);
 //        ConvoscopeService.saveChosenAsrFramework(mContext, ASR_FRAMEWORKS.GOOGLE_ASR_FRAMEWORK);
-        ConvoscopeService.saveChosenAsrFramework(mContext, ASR_FRAMEWORKS.GOOGLE_ASR_FRAMEWORK);
+//        ConvoscopeService.saveChosenAsrFramework(mContext, ASR_FRAMEWORKS.DEEPGRAM_ASR_FRAMEWORK);
+        ConvoscopeService.saveChosenAsrFramework(mContext, ASR_FRAMEWORKS.AZURE_ASR_FRAMEWORK);
+        ASR_FRAMEWORKS asrFramework = ConvoscopeService.getChosenAsrFramework(mContext);
 //        switchGoogleAsr.setChecked(asrFramework == ASR_FRAMEWORKS.GOOGLE_ASR_FRAMEWORK);
 //
 //        switchGoogleAsr.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {

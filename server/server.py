@@ -25,7 +25,7 @@ from aiohttp import web, web_exceptions
 #Convoscope
 from server_config import server_port
 from constants import USE_GPU_FOR_INFERENCING, IMAGE_PATH, TESTING_LL_CONTEXT_CONVO_AGENT
-from ContextualSearchEngine import ContextualSearchEngine
+# from ContextualSearchEngine import ContextualSearchEngine
 from DatabaseHandler import DatabaseHandler
 from agents.proactive_agents_process import start_proactive_agents_processing_loop
 from agents.expert_agent_configs import get_agent_by_name
@@ -35,7 +35,6 @@ from agents.language_learning_agent_process import start_language_learning_agent
 from agents.ll_context_convo_agent_process import ll_context_convo_agent_processing_loop
 from agents.adhd_stmb_agent_process import adhd_stmb_agent_processing_loop
 import agents.wake_words
-from Modules.RelevanceFilter import RelevanceFilter
 
 from auth.authentication import *
 
@@ -219,17 +218,12 @@ async def ui_poll_handler(request, minutes=0.5):
     
     db_handler.update_active_user(user_id, device_id)
 
-    # get CSE results
-#    if "contextual_search_engine" in features:
-#        cse_results = db_handler.get_cse_results_for_user_device(
-#            user_id=user_id, device_id=device_id)
-#
-#        if cse_results:
-#            print("server.py ================================= CSERESULT")
-#            print(cse_results)
-#
-#        # add CSE response
-#        resp["result"] = cse_results
+    # add system_messages
+    resp["system_messages"] = db_handler.get_system_messages_for_user_device(
+        user_id=user_id, device_id=device_id)
+    if resp["system_messages"]:
+        print("server.py ================================= system_messages")
+        print(resp["system_messages"])
 
     # get agent results
 
@@ -375,10 +369,13 @@ async def run_single_expert_agent_handler(request):
 
 #receive a chat message manually typed in the agent chat box
 async def send_agent_chat_handler(request):
+    print("SEND AGENT CHAT")
+
     body = await request.json()
     timestamp = time.time() # Never use client's timestamp ### body.get('timestamp')
     id_token = body.get('Authorization')
     user_id = verify_id_token(id_token)
+    device_id = body.get('deviceId')
     if user_id is None:
         raise web.HTTPUnauthorized()
     chat_message = body.get('chatMessage')
@@ -397,7 +394,7 @@ async def send_agent_chat_handler(request):
     # skip into proc loop
     print("SEND AGENT CHAT FOR USER_ID: " + user_id)
     user = db_handler.get_user(user_id)
-    await call_explicit_agent(user, chat_message)
+    await call_explicit_agent(chat_message, user, device_id)
 
     return web.Response(text=json.dumps({'success': True, 'message': "Got your message: {}".format(chat_message)}), status=200)
 
@@ -436,7 +433,7 @@ async def update_gps_location_for_user(request):
     # print("SEND UPDATE LOCATION FOR USER_ID: " + user_id)
     db_handler.add_gps_location_for_user(user_id, location)
     
-    locations = db_handler.get_gps_location_results_for_user_device(user_id, device_id)
+    # locations = db_handler.get_gps_location_results_for_user_device(user_id, device_id)
     
     # print("locations: ", locations)
     # if len(locations) > 1:
@@ -519,9 +516,6 @@ if __name__ == '__main__':
         multiprocessing.set_start_method('spawn')
 
     # log_queue = multiprocessing.Queue()
-    #print("Starting CSE process...")
-    #cse_process = multiprocessing.Process(target=cse_loop)
-    #cse_process.start()
 
     # start intelligent definer agent process
     print("Starting Intelligent Definer Agent process...")

@@ -22,6 +22,12 @@ TOKEN_DIRECTORY = os.path.dirname(os.path.realpath(__file__))
 
 WRITE_TO_LOCAL_SHEET = False
 SAVE_THRESHOLD = 0.005
+PRINT_ONLY = True  # If true, will print the timing information but not save it to the Google Sheet
+
+
+def append_to_log_file(function_name, duration):
+    with open("./helpers/log.txt", "a") as log_file:
+        log_file.write(f"{function_name}: {duration:.6f} seconds\n")
 
 
 def update_local_excel(function_name, time_called, duration):
@@ -114,23 +120,26 @@ def time_function():
             @wraps(function)
             async def async_wrapper(*args, **kwargs):
                 print(f"Timing function '{function.__name__}'")
+                start_time = perf_counter()
+                result = await function(*args, **kwargs)
+                end_time = perf_counter()
+                duration = end_time - start_time
+                print(f"Function '{function.__name__}' took {duration:.6f} seconds")
+
+                if PRINT_ONLY:
+                    append_to_log_file(function.__name__, duration)
+                    return result
+
                 service = get_service()
                 if not service:
                     warnings.warn(
                         "Unable to access Google Sheets. Timing will not be recorded."
                     )
-                    return function(*args, **kwargs)
+                    return result
 
-                start_time = perf_counter()
                 function_name = function.__name__
                 if function_name == "run_agent_async":
                     function_name += "_" + args[0].agent_name
-                    
-
-                result = await function(*args, **kwargs)
-                end_time = perf_counter()
-                duration = end_time - start_time
-                print(f"Function '{function.__name__}' took {duration:.6f} seconds")
 
                 if duration > SAVE_THRESHOLD:
                     update_sheet_with_pandas(service, function_name, time_called, f"{duration:.6f} seconds")
@@ -140,28 +149,29 @@ def time_function():
             @wraps(function)
             def sync_wrapper(*args, **kwargs):
                 print(f"Timing function '{function.__name__}'")
+                start_time = perf_counter()
+                result = function(*args, **kwargs)
+                end_time = perf_counter()
+                duration = end_time - start_time
+                print(f"Function '{function.__name__}' took {duration:.6f} seconds")
+
+                if PRINT_ONLY:
+                    append_to_log_file(function.__name__, duration)
+                    return result
+
                 service = get_service()
                 if not service:
                     warnings.warn(
                         "Unable to access Google Sheets. Timing will not be recorded."
                     )
-                    return function(*args, **kwargs)
-
-                start_time = perf_counter()
-                result = function(*args, **kwargs)
-                end_time = perf_counter()
-                duration = end_time - start_time
+                    return result
 
                 function_name = function.__name__
                 if function_name == "run_agent_async":
                     function_name += "_" + args[0].agent_name
 
-                print(f"Function '{function_name}' took {duration:.6f} seconds")
-
                 if duration > SAVE_THRESHOLD:
-                    update_sheet_with_pandas(service, function.__name__, time_called,
-                        f"{duration:.6f} seconds"
-                    )
+                    update_sheet_with_pandas(service, function.__name__, time_called, f"{duration:.6f} seconds")
 
                 return result
 

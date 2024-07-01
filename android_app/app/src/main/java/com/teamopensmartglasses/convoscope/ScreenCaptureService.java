@@ -68,7 +68,7 @@ public class ScreenCaptureService extends Service {
     private Runnable imageBufferRunnableCode;
     private final Handler imageBufferLoopHandler = new Handler(Looper.getMainLooper());
     Bitmap bitmapBuffer = null;
-    private static final long TEXT_DEBOUNCE_TIME_MS = 450;
+    private static final long TEXT_DEBOUNCE_TIME_MS = 500;
     private static final long IMAGE_DEBOUNCE_TIME_MS = 1200;
     public Boolean textOnly = true;
     private long lastProcessedTime = 0;
@@ -141,7 +141,7 @@ public class ScreenCaptureService extends Service {
             stopSelf(); // Stop the service if permission is not granted
         }
 
-        this.textOnly = !PreferenceManager.getDefaultSharedPreferences(getApplicationContext()).getBoolean("screen_mirror_image", true);
+        this.textOnly = !PreferenceManager.getDefaultSharedPreferences(getApplicationContext()).getBoolean("screen_mirror_image", false);
         startImageBufferLoop();
         return START_STICKY;
     }
@@ -249,7 +249,7 @@ public class ScreenCaptureService extends Service {
     }
 
     private void processBitmap(Bitmap bitmap) {
-        boolean newTextOnly = !PreferenceManager.getDefaultSharedPreferences(getApplicationContext()).getBoolean("screen_mirror_image", true);
+        boolean newTextOnly = !PreferenceManager.getDefaultSharedPreferences(getApplicationContext()).getBoolean("screen_mirror_image", false);
         textOnly = newTextOnly;
 //        if (newTextOnly != textOnly){
 
@@ -290,7 +290,7 @@ public class ScreenCaptureService extends Service {
             //crop out the top pixels
             // Crop the bitmap to remove the top phone display bar
             bitmap = cropTopPixels(bitmap, 145);
-            bitmap = cropSidePixels(bitmap, 90);
+            bitmap = cropSidePixels(bitmap, 50);
 
             // Scale the bitmap down to fit within the max dimensions
             Bitmap scaledBitmap = scaleBitmap(bitmap, maxWidth, maxHeight);
@@ -361,7 +361,7 @@ public class ScreenCaptureService extends Service {
                         Log.d(TAG, "screen height is: " + screenHeight);
 
                         // Define the ratio (e.g., 0.02 for 2% of the screen height)
-                        float textSizeDropHeightRatio = 0.009f;
+                        float textSizeDropHeightRatio = 0.008f;
                         int dropSmallTextHeightThreshold = (int) (screenHeight * textSizeDropHeightRatio);
                         float textHeightSameLineRatio = 0.02f;
                         int sameLineHeightRatioThreshold = (int) (screenHeight * textHeightSameLineRatio);
@@ -420,7 +420,7 @@ public class ScreenCaptureService extends Service {
                                 // Group lines by their y-coordinate range
                                 int yPos = boundingBox.top;
                                 int yKey = yPos / sameLineHeightRatioThreshold; // Group lines in the same range
-                                Log.d(TAG, "LINE TEXT FROM OCR: " + lineText + ", yKey: " + yKey + ", top: " + yPos);
+//                                Log.d(TAG, "LINE TEXT FROM OCR: " + lineText + ", yKey: " + yKey + ", top: " + yPos);
 
                                 // Initialize the list if not present
                                 if (!groupedLines.containsKey(yKey)) {
@@ -435,7 +435,7 @@ public class ScreenCaptureService extends Service {
                         // Build the final text by combining grouped lines
                         for (Map.Entry<Integer, List<String>> entry : groupedLines.entrySet()) {
                             List<String> lines = entry.getValue();
-                            Log.d(TAG, "THIS IS LINES: " + lines.toString());
+//                            Log.d(TAG, "THIS IS LINES: " + lines.toString());
                             if (lines.size() > 1) {
                                 for (int i = 0; i < lines.size(); i++) {
                                     fullText.append(lines.get(i));
@@ -448,64 +448,6 @@ public class ScreenCaptureService extends Service {
                             }
                             fullText.append("\n");
                         }
-
-
-
-
-//                        // Process each line
-//                        for (Text.Line line : allLines) {
-//                            Rect boundingBox = line.getBoundingBox();
-//                            if (boundingBox != null) {
-//                                int boxHeight = boundingBox.height();
-//
-//                                // Remove lines with bounding box height less than the threshold
-//                                if (boxHeight < dropSmallTextHeightThreshold) {
-//                                    continue;
-//                                }
-//
-//                                String lineText = line.getText();
-//
-//                                // Check if the line contains a link
-//                                if (linkPattern.matcher(lineText).matches()) {
-//                                    continue; // Skip this line
-//                                }
-//
-//                                // Calculate the starting position based on the bounding box left coordinate (x)
-//                                int startPos = (boundingBox.left * maxWidthChars) / maxWidthPixels;
-//
-//                                // Group lines by their y-coordinate range
-//                                int yPos = boundingBox.top;
-//                                int yKey = yPos / sameLineHeightRatioThreshold; // Group lines in the same range
-//                                Log.d(TAG, "LINE TEXT FROM OCR: " + lineText + ", yKey: " + yKey + ", top: " + yPos);
-//
-//                                // Initialize the list if not present
-//                                if (!groupedLines.containsKey(yKey)) {
-//                                    groupedLines.put(yKey, new ArrayList<String>());
-//                                }
-//
-//                                // Add the line to the group
-//                                groupedLines.get(yKey).add(lineText);
-//                            }
-//                        }
-
-//                        // Build the final text by combining grouped lines
-//                        for (Map.Entry<Integer, List<String>> entry : groupedLines.entrySet()) {
-//                            List<String> lines = entry.getValue();
-//                            Log.d(TAG, "THIS IS LINES: " + lines.toString());
-//                            if (lines.size() > 1) {
-//                                for (int i = 0; i < lines.size(); i++) {
-//                                    fullText.append(lines.get(i));
-//                                    if (i < lines.size() - 1) {
-//                                        fullText.append("    "); // few spaces to separate lines on the same level
-//                                    }
-//                                }
-//                            } else {
-//                                fullText.append(lines.get(0));
-//                            }
-//                            fullText.append("\n");
-//                        }
-
-
 
 
                         String processedText = fullText.toString();
@@ -653,6 +595,8 @@ public class ScreenCaptureService extends Service {
     @Override
     public void onDestroy() {
         super.onDestroy();
+        imageBufferLoopHandler.removeCallbacksAndMessages(null);
+
         if (mediaProjection != null) {
             mediaProjection.stop();
             mediaProjection = null;

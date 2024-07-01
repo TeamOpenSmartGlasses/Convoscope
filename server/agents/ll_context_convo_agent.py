@@ -13,9 +13,10 @@ from langchain.schema import OutputParserException
 from pydantic import BaseModel, Field
 from helpers.time_function_decorator import time_function
 
-from Modules.LangchainSetup import *
+from Modules.LangchainSetup import get_langchain_gpt4o
 
-#pinyin
+# pinyin
+import jieba
 from pypinyin import pinyin, Style
 
 
@@ -45,6 +46,8 @@ Output 4: 如何询问去大英博物馆内某个展览的路线？
 
 Remember that this is a conversation, and your next output should be a continuation of the conversation. Do not repeat what you previously said! Try different conversation starters related to the user's environment or interests to keep the conversation engaging. The conversation shouldn't be strictly about the nearby places, and you can talk about anything that comes to mind if it's appropriate. Responses should be short (5-10 words).
 
+If the users asks you a question try to answer it using language appropriate for their fluency level and try to ask a follow-up question to keep the conversation going.
+
 Here is the conversation so far (you are the agent) which all the user will ever see:
 {conversation_history}
 
@@ -62,6 +65,10 @@ def run_ll_context_convo_agent(places: list, target_language: str = "Russian", f
     llm = get_langchain_gpt4o(temperature=0.3, max_tokens=200)
 
     places_string = "\n".join(places)
+
+    # remove Pinyin so it output Hanzi
+    remove_pinyin = " (Pinyin)"
+    target_language = target_language.replace(remove_pinyin, "")
 
     class ContextConvoAgentQuery(BaseModel):
         """
@@ -88,8 +95,8 @@ def run_ll_context_convo_agent(places: list, target_language: str = "Russian", f
         conversation_history=conversation_history,
     ).to_string()
     # print(ll_context_convo_agent_query_prompt_string)
-    print("LL CONTEXT CONVO PROMPT********************************")
-    print(ll_context_convo_agent_query_prompt_string)
+    # print("LL CONTEXT CONVO PROMPT********************************")
+    # print(ll_context_convo_agent_query_prompt_string)
 
     response = llm.invoke(
         [HumanMessage(content=ll_context_convo_agent_query_prompt_string)])
@@ -99,17 +106,26 @@ def run_ll_context_convo_agent(places: list, target_language: str = "Russian", f
         response = ll_context_convo_agent_query_parser.parse(
             response.content).response
 
-        def chinese_to_pinyin(chinese_text):
-            return ' '.join([item[0] for item in pinyin(chinese_text, style=Style.TONE)])
+        # Function to convert a list of Chinese words to Pinyin
+        def chinese_to_pinyin(text):
+            # Segment the text into words using jieba
+            words = jieba.cut(text)
+            # Convert each segmented word to pinyin and join them
+            pinyin_output = ' '.join([''.join([py[0] for py in pinyin(word, style=Style.TONE)]) for word in words])
+            return pinyin_output
 
         response_obj = dict()
-        # Apply Pinyin conversion if target_language is "Chinese (Pinyin)"
-        if target_language == "Chinese (Pinyin)":
-            response_obj["hanzi"] = response
-            response = chinese_to_pinyin(response)
+        raw_tts_string = response
 
+        response_obj["ll_context_for_agent"] = response  # save the response for the agent in case it is converted to Pinyin
+        # Apply Pinyin conversion if target_language is "Chinese (Pinyin)"
+        if target_language == "Chinese":
+            response = chinese_to_pinyin(response)
+        
+        target_language = "Chinese" if "Chinese" in target_language else target_language # for TTS
+        
         response_obj["ll_context_convo_response"] = response # pack the response into a dictionary
-        response_obj["to_tts"] = {"text": response, "language": target_language}
+        response_obj["to_tts"] = {"text": raw_tts_string, "language": target_language}
 
         print("LL CONTEXT CONVO RESPONSE: ")
         print(response_obj)

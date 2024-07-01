@@ -1,7 +1,3 @@
-# custom
-from collections import defaultdict
-from server_config import openai_api_key
-
 # langchain
 from langchain.chat_models import ChatOpenAI
 from langchain.prompts import PromptTemplate

@@ -7,11 +7,19 @@ language_code_map = {
     "English": "en",
     "Spanish": "es",
     "Russian": "ru",
-    #"Japanese": "ja",
+    # "Japanese": "ja",
     "French": "fr",
     "Chinese": "zh_cn",  # Assuming simplified Chinese; adjust if necessary for traditional
-    "Chinese (Pinyin)": "zh_cn",  # Assuming simplified Chinese; adjust if necessary for traditional
+    "Chinese (Hanzi)": "zh_cn", # Assuming simplified Chinese; adjust if necessary for traditional
+    "Chinese (Pinyin)": "zh_cn", # Assuming simplified Chinese; adjust if necessary for traditional
+    "German": "de",
+    "Arabic": "ar",
+    "Korean": "ko",
+    "Italian": "it",
+    "Turkish": "tr",
+    "Portuguese": "pt"
 }
+
 
 def load_frequency_list(language_code: str, type: str) -> pd.DataFrame:
     """
@@ -52,7 +60,6 @@ def get_word_frequency_percentiles(transcript: str, language_code: str) -> dict:
     total_words = len(words_dict)  # Get total words from the selected dictionary
 
     # Tokenize the transcript based on the language
-    print(language_code)
     if language_code == "Chinese" or language_code == "Chinese (Pinyin)":
         words = list(jieba.cut(transcript))
     else:
@@ -77,6 +84,7 @@ def get_word_frequency_percentiles(transcript: str, language_code: str) -> dict:
     # print(words_rank)
 
     return words_rank
+
 
 if __name__ == "__main__":
     to_test_str = "你好，你今天过得怎么样？ 这是一个协同效应。"

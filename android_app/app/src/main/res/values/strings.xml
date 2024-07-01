@@ -25,6 +25,14 @@
             <item>Spanish</item>
             <item>Hebrew</item>
             <item>Dutch</item>
+            <item>French</item>
+            <item>German</item>
+            <item>Arabic</item>
+            <item>Korean</item>
+            <item>Italian</item>
+            <item>Turkish</item>
+            <item>Portuguese</item>
+
             <!-- Add more languages here -->
         </string-array>
 

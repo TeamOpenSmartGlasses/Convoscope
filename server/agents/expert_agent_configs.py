@@ -1,6 +1,7 @@
 from agents.agent_utils import format_list_data
 from agents.generic_agent.generic_agent import GenericAgent
 
+
 expert_agent_config_list_og = {
     "Statistician": {
         "agent_name": "Statistician",
@@ -66,15 +67,15 @@ Insight: Numerous studies show no vaccine-autism link; vaccines prevent disease 
 Insight: AI will create new jobs and industries, not just replace old ones
 """,
     },
-  "QuestionAsker": {
-        "agent_name": "QuestionAsker",
+  "IdeaGenerator": {
+        "agent_name": "IdeaGenerator",
         "tools": [],
         "discourage_tool_use": False,
         "insight_num_words": 15,
-        "agent_insight_type": """propose a question, relevant to the current conversation, that isn't already being sufficiently discussed, that would stimulate further thought and explore ideas further. Don't ask something broad, ask something specific to the current conversation. Provide your question in simple and easy to understand language, and always pose it as a question.""",
-        "agent_plan": """1. Read the conversation thus far. 2. Think deeply about a contextually relevant, provacative question, something that the conversationalists haven't considered yet. 3. Output your question in the requested format""",
-        "validation_criteria": """a short, thought-provoking question""",
-        "proactive_tool_description": """When it would be useful for the user and/or the people in the conversation to have a stimulus for further thought. Especially useful when the conversation is 'stuck'.""",
+        "agent_insight_type": """propose a novel idea using context from the current conversation, that would stimulate further thought and explore ideas further. Don't propose something broad, propose an idea that's somewhat relevant to the current conversation. Provide your idea in simple and easy to understand language, and always pose it as a question.""",
+        "agent_plan": """1. Read the conversation thus far. 2. Think deeply about a contextually relevant, provacative question, something that the conversationalists haven't considered yet. 3. Output your idea in the requested format""",
+        "validation_criteria": """a short, thought-provoking idea""",
+        "proactive_tool_description": """When it would be useful for the user and/or the people in the conversation to have a novel idea. Especially useful when the conversation is 'stuck'.""",
         "proactive_tool_example": """No examples.""",
         "examples": """No examples.""",
     },
@@ -87,8 +88,8 @@ Insight: AI will create new jobs and industries, not just replace old ones
 You only give answers that are verifiable through free, publically available knowledge and not personal or opinion-based claims.
 Your answer should be a statement, and if needed, some very short explanation.
 If there is not a distinct question or statement of ignorance that you can answer that fits the previous requirements, then just output "null".""",
-        "agent_plan": """1. Find and write down individual questions posed in the conversation. If there are no questions made that meet the requirements, then skip to the final step and output "null".\n2. If one or more questions are found, select the question that would provide the most value and forget the rest, then search for the answer.\n3. Generate the "Insight".""",
-        "validation_criteria": """answers a question or statement of ignorance, and provides brief elaboration""",
+        "agent_plan": """1. Find and write down individual questions posed in the conversation. Do not simply regurgitate information present in the conversation. If there are no questions made that meet the requirements, then skip to the final step and output "null".\n2. If one or more questions are found, select the question that would provide the most value and forget the rest, then search for the answer.\n3. Generate the "Insight".""",
+        "validation_criteria": """answers a question or statement of ignorance, provides brief elaboration, without simply reiterating what's said in the conversation""",
         "proactive_tool_description": """Trigger an answer when a question or rhetorical thought goes unanswered. Provide your answer in simple and easy to understand language. Also, initiate an answer for questions/statements not commonly known to an uneducated person, suspected falsehoods, common myths, or claims verifiable through free, public knowledge. Do not consider personal, belief-based, or unfalsifiable claims.""",
         "proactive_tool_example": """Transcript mentions "Which city was the first skyscraper built in?"
 Insight: "1st skyscraper: Chicago""",
@@ -183,6 +184,7 @@ Insight: Paris: 60% chance of rain, high of 22°C, air quality index at moderate
 #    },
 }
 
+
 # TODO: temp
 default_expert_agent_list = []
 for key in expert_agent_config_list_og.keys():
@@ -190,11 +192,13 @@ for key in expert_agent_config_list_og.keys():
     default_expert_agent_list.append(gena)
     print("ADDED TOOL TO LIST: " + gena.agent_name)
 
+
 # TODO: Find nicer way to do this
 def get_agent_by_name(name):
     for ea in default_expert_agent_list:
         if ea.agent_name == name:
             return ea
+
     return None
 
 

@@ -6,6 +6,7 @@ import asyncio
 from DatabaseHandler import DatabaseHandler
 from agents.language_learning_agent import run_language_learning_agent
 from agents.helpers.word_frequency_percentiles import get_word_frequency_percentiles
+
 from constants import LANGUAGE_LEARNING_AGENT
 
 db_handler = DatabaseHandler(parent_handler=False)
@@ -48,7 +49,7 @@ async def process_transcript(transcript: str):
     ctime = time.time()
     
     if db_handler.get_user_settings_value(transcript['user_id'], "is_having_language_learning_contextual_convo"):
-        print("User is having a conversation, skipping language translation")
+        # print("User is having a conversation, skipping language translation")
         return
     else:
         pass

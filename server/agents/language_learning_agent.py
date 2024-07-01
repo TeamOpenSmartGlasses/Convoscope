@@ -1,7 +1,6 @@
 # custom
 from collections import defaultdict
 from agents.agent_utils import format_list_data
-from server_config import openai_api_key
 
 # langchain
 from langchain.prompts import PromptTemplate
@@ -14,7 +13,7 @@ from pydantic import BaseModel, Field
 from helpers.time_function_decorator import time_function
 
 #pinyin
-import json
+import jieba
 from pypinyin import pinyin, Style
 
 from Modules.LangchainSetup import *
@@ -55,6 +54,8 @@ Frequency Ranking: The frequency percentile of each word tells you how common it
 Recently Translated: `{live_translate_word_history}`
 
 Output Format: {format_instructions}
+
+Always translate at least 1 word.
 
 Don't output punctuation or periods! Output all lowercase! Define 1/5 of the words in the input text (never define all of the words in the input, never define highly common words like "the", "a", "it", etc.). Now provide the output:"""
 
@@ -107,26 +108,18 @@ def format_list_data(data: dict) -> str:
 
 
 @time_function()
-async def run_language_learning_agent(conversation_context: str, word_rank: dict, target_language="Russian", transcribe_language="English", source_language = "English", live_translate_word_history=""):
+async def run_language_learning_agent(conversation_context: str, word_rank: dict, target_language="Russian", transcribe_language="English", source_language="English", live_translate_word_history=""):
     # start up GPT4o connection
     llm = get_langchain_gpt4o(temperature=0.2, max_tokens=80)
+    #llm = get_langchain_gpt35(temperature=0.2, max_tokens=80)
 
-    #remove punctuation
-
-    # "It's a beautiful day to be out and about at the library! And you should come to my house tomorrow!"
+    # remove punctuation
     conversation_context = conversation_context
     fluency_level = 15  # Example fluency level
-    #target_language = "Chinese (Pinyin)"
-    #source_language = "English"
     remove_pinyin = " (Pinyin)"
     output_language = source_language.replace(remove_pinyin, "")
     if transcribe_language == source_language:
         output_language = target_language.replace(remove_pinyin, "")
-
-    # print("transcribe_language")
-    # print(transcribe_language)
-    # print("output language")
-    # print(output_language)
 
     class LanguageLearningAgentQuery(BaseModel):
         """
@@ -146,8 +139,6 @@ async def run_language_learning_agent(conversation_context: str, word_rank: dict
     )
 
     word_rank_string = format_list_data(word_rank)
-    # print("LANGUAGE LEARNING WORD RANK STRING:" + word_rank_string)
-    #print("LANGUAGE LEARNING WORD RANK STRING:" + word_rank_string)
 
     language_learning_agent_query_prompt_string = extract_language_learning_agent_query_prompt.format_prompt(
         conversation_context=conversation_context,
@@ -160,42 +151,40 @@ async def run_language_learning_agent(conversation_context: str, word_rank: dict
         live_translate_word_history=live_translate_word_history
     ).to_string()
 
-    # print("LANGUAGE LEARNING PROMPT********************************")
-    # print(language_learning_agent_query_prompt_string)
-
-    # print("Proactive meta agent query prompt string", language_learning_agent_query_prompt_string)
-
     response = await llm.ainvoke(
         [HumanMessage(content=language_learning_agent_query_prompt_string)])
-    #print(response)
 
     try:
         translated_words = language_learning_agent_query_parser.parse(
             response.content).translated_words
 
-        #drop too common words
+        # Drop too common words
         word_rank_threshold = 0.2
         translated_words_rare = dict()
         for word, translation in translated_words.items():
-            if word in word_rank and word_rank[word] >= word_rank_threshold: 
+            if word in word_rank and word_rank[word] >= word_rank_threshold:
                 translated_words_rare[word] = translation
 
-        #convert Chinese characters into Pinyin
-        # Function to convert Chinese text to Pinyin
-        def chinese_to_pinyin(chinese_text):
-            return ' '.join([item[0] for item in pinyin(chinese_text, style=Style.TONE)])
+        # Function to convert a list of Chinese words to Pinyin
+        def chinese_to_pinyin(text):
+            # Segment the text into words using jieba
+            words = jieba.cut(text)
+            # Convert each segmented word to pinyin and join them
+            pinyin_output = ' '.join([''.join([py[0] for py in pinyin(word, style=Style.TONE)]) for word in words])
+            return pinyin_output
 
-        # Apply Pinyin conversion 
+        # Apply Pinyin conversion if needed
         if "Pinyin" in target_language or "Pinyin" in source_language:
-            #translated_words_pinyin = {chinese_to_pinyin(word): chinese_to_pinyin(translated_words[word]) for word in translated_words}
             translated_words_pinyin = {chinese_to_pinyin(word): chinese_to_pinyin(translated_words_rare[word]) if isinstance(translated_words_rare[word], str) and any('\u4e00' <= char <= '\u9fff' for char in translated_words_rare[word]) else translated_words_rare[word] for word in translated_words_rare}
 
+            # Convert input words to Pinyin if the source language contains Pinyin
+            if "Pinyin" in source_language:
+                translated_words_pinyin = {chinese_to_pinyin(word): translation for word, translation in translated_words_pinyin.items()}
         else:
-            translated_words_pinyin = translated_words
+            translated_words_pinyin = translated_words_rare
 
-        #drop any repeats and then pack into list(even though we prompt it not to, it often does repeats)
+        # Drop any repeats and then pack into list
         translated_words_obj = []
-        #print(word_rank)
         live_translate_word_history_set = set(live_translate_word_history)  # Convert to set for efficient lookup
         for word, translation in translated_words_pinyin.items():
             if word not in live_translate_word_history_set:  # Check if word is not in the already translated words

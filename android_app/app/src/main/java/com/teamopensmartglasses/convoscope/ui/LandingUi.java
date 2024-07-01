@@ -26,6 +26,7 @@ public class LandingUi extends Fragment {
   public final String TAG = "Convoscope_LandingActivity";
   public final String fragmentLabel = "Landing page";
   private NavController navController;
+  private FirebaseAuth mAuth;
 
   public LandingUi(){
 
@@ -45,7 +46,9 @@ public class LandingUi extends Fragment {
     navController = Navigation.findNavController(getActivity(), R.id.nav_host_fragment);
 
     // Check if we're already logged in... if so, skip to MainActivity
-    if (!getSavedAuthToken().isEmpty()) {
+    mAuth = FirebaseAuth.getInstance();
+    FirebaseUser currentUser = mAuth.getCurrentUser();
+    if (currentUser != null) {
       navController.navigate(R.id.nav_convoscope);
     }
 
