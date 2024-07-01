@@ -12,9 +12,9 @@ from constants import ADHD_STMB_AGENT
 run_period = 20
 transcript_back_time = run_period * 1.1 #The amount of time to look back for new transcripts
 total_transcript_context_time = 3.5 * 60 #The total amount of time to consider for the context of the transcript to summarize
-minimum_topic_time = 30 #the minimum amount of time since last topic change for a new topic chnage
-maximum_topic_time = 120 #the maximum amount of time to go without a topic shift - force a topic shift if this much time has gone by
+minimum_topic_time = 20 #the minimum amount of time since last topic change for a new topic chnage
 max_same_topic_time = 0.75 * total_transcript_context_time #Max amount of time for recent transcript if topic hasn't changed
+maximum_topic_time = 120
 
 def adhd_stmb_agent_processing_loop():
     print("START ADHD STMB AGENT PROCESSING LOOP")
@@ -70,7 +70,7 @@ def adhd_stmb_agent_processing_loop():
                     summarize_transcript_back_time = transcript_back_time
                 else:
                     summarize_transcript_back_time = time.time() - latest_topic_shift_time
-                    #summarize_transcript_back_time = min(max_same_topic_time, summarize_transcript_back_time)
+                    # summarize_transcript_back_time = min(max_same_topic_time, summarize_transcript_back_time)
                     to_summarize_transcript, _, _ = dbHandler.get_transcripts_from_last_nseconds_for_user_as_string(user_id, n=summarize_transcript_back_time)
 
                 print("---------------------------Transcript to Summarize---------------------------")
@@ -78,7 +78,6 @@ def adhd_stmb_agent_processing_loop():
 
                 print("-------------------------------------")
                 print(f"To summarize = context" if to_summarize_transcript == context_transcript else f"To summarize != context")
-
                 #run the ADHD STMB agent
                 summary, new_topic_shift_words = run_adhd_stmb_agent(to_summarize_transcript, context_transcript, previous_summary)
                 print(f"-------------------------------------")
@@ -90,7 +89,7 @@ def adhd_stmb_agent_processing_loop():
 
                 #maybe add a new true_shift topic shift
                 if summarize_transcript_back_time > minimum_topic_time: #don't allow topic shift if the last topic shift was too recent
-                    if new_topic_shift_words != None: #there was a topic shift, or we went overtime
+                    if new_topic_shift_words != None:
                         #find the time stamp of the topic shift
                         #guess the timestamp of these words
                         idx = to_summarize_transcript.find(new_topic_shift_words)
@@ -103,9 +102,9 @@ def adhd_stmb_agent_processing_loop():
                         topic_shift_time = transcript_start_time + topic_shift_in + 3 # add a few seconds so no overlap in the shift phase
                         print("topic shift in: {}".format(topic_shift_in))
                         print("topic shift time: {}".format(topic_shift_time))
-
                         #add a new shift, save previous summary as this true shift
                         dbHandler.add_topic_shift_for_user(user_id, topic_shift_time, previous_summary, true_shift=True)
+
                     elif summarize_transcript_back_time > maximum_topic_time:
                         #add a new shift, save previous summary as this true shift
                         dbHandler.add_topic_shift_for_user(user_id, time.time(), previous_summary, true_shift=True)
