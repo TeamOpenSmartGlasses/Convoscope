@@ -17,14 +17,14 @@ from Modules.LangchainSetup import *
 
 adhd_stmb_prompt_blueprint = """You are an assistant that helps someone with ADHD stay on track in conversations by maintaining a short term memory buffer which the user can view on their smart glasses.
 
-You will receive 2 transcripts. The 'Context Transcript' is the entire recent conversation. This is to give you context.
+You will receive 2 transcripts. The 'Context Transcript' is the entire conversation. This is to give you context.
 
 The 'Recent Transcript' is the most recent part of 'Context Transcript' since the last topic change.
 
 Instructions:
-1. Output a boolean if the 'Recent Transcript' topic has recently changed (which means that at the start of the recent transcript, there was a topic being discussed, and the topic has now shifted to something new). Use both the 'Context Transcript' AND the 'Previous Summary' to decide.  A new topic shift should only be detected toward the end of the 'Recent Transcript' if (a) the new topic summary is significantly different from the 'Previous Summary' (not just another phrase to describe it, for example), (b) the topic has changed within the larger conversation context of the 'Context Transcript', and (c) there is a fair amount of text (3+ sentences) in the 'Recent Transcript' before the topic shift.
+1. Detect whether the topic within the 'Recent Transcript' has changed. A topic change within the 'Recent Transcript' means that that at the start of the 'Recent Transcript', there was a topic being discussed, but at the end of the 'Recent Transcript', the topic shifted to something new. Use the 'Context Transcript' (transcript of the entire conversation) AND the 'Previous Summary' (the topic of the last 'Recent Transcript') to decide. A topic shift should only be detected if (a) the new topic is significantly different from the 'Previous Summary' topic (not just another phrase to describe it, for example), (b) the topic signifies a change within the context of the entire conversation as a whole, and (c) there is a fair amount of text (3+ sentences) in the 'Recent Transcript' before the topic shift. Output a boolean value indicating whether the topic has changed.
 2. If the topic has shifted, output the three words that delineate where in the 'Recent Transcript' the topic changed. Make sure those three words appear *exactly* as they appear in the input transcript (including punctuation, capitalization, etc.). 
-3. Output a summary of the 'Recent Transcript'. If the previous summary is still accurate, use that. But if more information has come in such that there isn't a topic shift but you can make a better summary, then make a new, better summary. If the topic changed during the Recent Transcript, summarize only the text *after* the topic shift.
+3. Output a summary of the 'Recent Transcript'. If the previous summary is still accurate, use that. But if you can make a better summary, even if the topic hasn't changed, then output the new, better summary. If the topic changed during the Recent Transcript, summarize only the text *after* the topic shift.
 
 Output a 1 to 4 word summary of the input conversation text according to the given format.
 
