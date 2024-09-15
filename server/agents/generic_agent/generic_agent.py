@@ -1,8 +1,9 @@
 from DatabaseHandler import DatabaseHandler
 from agents.agent_utils import format_list_data
-from langchain.agents import initialize_agent, load_tools
+from langchain.agents import initialize_agent
+from langchain_community.agent_toolkits.load_tools import load_tools
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain.agents.tools import Tool
+from langchain.agents import tool
 from langchain.prompts import PromptTemplate
 from langchain.agents import AgentType
 from agents.search_tool_for_agents import get_search_tool_for_agents

@@ -5,7 +5,7 @@ from bs4 import BeautifulSoup
 import requests
 from server_config import serper_api_key
 from Modules.Summarizer import Summarizer
-from langchain.agents.tools import Tool
+from langchain.tools import Tool
 from helpers.time_function_decorator import time_function
 import asyncio
 import aiohttp

@@ -1,16 +1,12 @@
 from pymongo.mongo_client import MongoClient
 from pymongo.server_api import ServerApi
 import time
-import agents.wake_words
 import math
-import warnings
 from hashlib import sha256
-from server_config import database_uri, clear_users_on_start, clear_cache_on_start
+from llsg.Modules.server_config import database_uri, clear_users_on_start, clear_cache_on_start
 import uuid
-import logging
-from logger_config import logger
-from constants import TESTING_LL_CONTEXT_CONVO_AGENT, MODES_FEATURES_MAP
-from helpers.time_function_decorator import time_function
+from llsg.Modules.constants import TESTING_LL_CONTEXT_CONVO_AGENT, MODES_FEATURES_MAP
+from llsg.helpers.time_function_decorator import time_function
 
 
 class DatabaseHandler:
@@ -535,8 +531,8 @@ class DatabaseHandler:
         self.user_collection.update_one(filter=filter, update=update)
 
     def check_for_wake_words_in_transcript_text(self, user_id, text):
-        if agents.wake_words.does_text_contain_wake_word(text):
-            return self.update_wake_word_time_for_user(user_id)
+        # if agents.wake_words.does_text_contain_wake_word(text):
+        #   return self.update_wake_word_time_for_user(user_id)
         return False
 
     ### Explicit Queries ###

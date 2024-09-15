@@ -21,7 +21,7 @@ bert-extractive-summarizer
 webvtt-py
 rapidfuzz
 wolframalpha
-pydantic==1.10.13
+pydantic
 gspread
 oauth2client
 google-api-python-client
@@ -30,10 +30,10 @@ google-auth-oauthlib
 openpyxl
 pypinyin
 llmlingua
-openai==1.14.1
-langchain==0.1.11
-langchain-community==0.0.26
-langchain-core==0.1.29
-langchain-openai==0.0.8
-langchain-text-splitters==0.0.1
+openai
+langchain
+langchain-community
+langchain-core
+langchain-openai
+langchain-text-splitters
 jieba

@@ -17,7 +17,7 @@ import static com.teamopensmartglasses.convoscope.Constants.llContextConvoKey;
 import static com.teamopensmartglasses.convoscope.Constants.llWordSuggestUpgradeKey;
 import static com.teamopensmartglasses.convoscope.Constants.proactiveAgentResultsKey;
 import static com.teamopensmartglasses.convoscope.Constants.shouldUpdateSettingsKey;
-import static com.teamopensmartglasses.convoscope.Constants.systemMessagesKey;
+import static com.teamopensmartglasses.convoscope.Constants.displayRequestsKey;
 import static com.teamopensmartglasses.convoscope.Constants.wakeWordTimeKey;
 
 import android.content.ComponentName;
@@ -80,8 +80,6 @@ import com.teamopensmartglasses.smartglassesmanager.smartglassescommunicators.Sm
 import com.teamopensmartglasses.smartglassesmanager.speechrecognition.ASR_FRAMEWORKS;
 import com.teamopensmartglasses.smartglassesmanager.supportedglasses.SmartGlassesDevice;
 import com.teamopensmartglasses.smartglassesmanager.supportedglasses.SmartGlassesOperatingSystem;
-
-import javax.microedition.khronos.opengles.GL;
 
 public class ConvoscopeService extends SmartGlassesAndroidService {
     public final String TAG = "Convoscope_ConvoscopeService";
@@ -892,8 +890,8 @@ public class ConvoscopeService extends SmartGlassesAndroidService {
 
         JSONArray explicitAgentResults = response.has(explicitAgentResultsKey) ? response.getJSONArray(explicitAgentResultsKey) : new JSONArray();
 
-        //systemMessages
-        JSONArray systemMessages = response.has(systemMessagesKey) ? response.getJSONArray(systemMessagesKey) : new JSONArray();
+        //displayResults
+        JSONArray displayRequests = response.has(displayRequestsKey) ? response.getJSONArray(displayRequestsKey) : new JSONArray();
 
         //proactive agents
         JSONArray proactiveAgentResults = response.has(proactiveAgentResultsKey) ? response.getJSONArray(proactiveAgentResultsKey) : new JSONArray();
@@ -1033,13 +1031,45 @@ public class ConvoscopeService extends SmartGlassesAndroidService {
 
         }
 
-        // systemMessages
-        for (int i = 0; i < systemMessages.length(); i++) {
+        // displayResults
+        for (int i = 0; i < displayRequests.length(); i++) {
             try {
-                JSONObject obj = systemMessages.getJSONObject(i);
-                String body = obj.getString("message");
-                displayQueue.addTask(new DisplayQueue.Task(() -> this.sendReferenceCard(glassesCardTitle, body), false, false));
-                queueOutput(body);
+                JSONObject obj = displayRequests.getJSONObject(i);
+                JSONObject req = obj.getJSONObject("data");
+                JSONObject content = req.getJSONObject("content");
+                String layout = req.getString("layout");
+                String title;
+                String body;
+                switch (layout){
+                    case "REFERENCE_CARD":
+                        title = content.getString("title");
+                        body = content.getString("body");
+                        queueOutput(title + ": " + body);
+                        displayQueue.addTask(new DisplayQueue.Task(() -> this.sendReferenceCard(title, body), false, false));
+                        break;
+                    case "TEXT_WALL":
+                    case "TEXT_LINE":
+                        body = content.getString("body");
+                        queueOutput(body);
+                        displayQueue.addTask(new DisplayQueue.Task(() -> this.sendTextWall(body), false, false));
+                        break;
+                    case "DOUBLE_TEXT_WALL":
+                        String bodyTop = content.getString("bodyTop");
+                        String bodyBottom = content.getString("bodyBottom");
+                        queueOutput(bodyTop + "\n\n" + bodyBottom);
+                        displayQueue.addTask(new DisplayQueue.Task(() -> this.sendDoubleTextWall(bodyTop, bodyBottom), false, false));
+                        break;
+                    case "ROWS_CARD":
+                        JSONArray rowsArray = content.getJSONArray("rows");
+                        String[] stringsArray = new String[rowsArray.length()];
+                        for (int k = 0; k < rowsArray.length(); k++)
+                            stringsArray[k] = rowsArray.getString(k);
+                        queueOutput(String.join("\n", stringsArray));
+                        displayQueue.addTask(new DisplayQueue.Task(() -> this.sendRowsCard(stringsArray), false, false));
+                        break;
+                    default:
+                        Log.d(TAG, "SOME ISSUE");
+                }
             }
             catch (JSONException e){
                 e.printStackTrace();
