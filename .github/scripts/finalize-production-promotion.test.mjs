@@ -9,14 +9,15 @@ import {
   PROMOTION_STATES,
   transitionPromotionRecord,
 } from "./production-promotion-state.mjs"
-import {createReleasePlan, loadReleaseFamily} from "./release-family.mjs"
+import {createReleasePlan, familyBuildNumber, loadReleaseFamily} from "./release-family.mjs"
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..")
+const family = loadReleaseFamily({rootDir: root})
 const plan = createReleasePlan({
-  family: loadReleaseFamily({rootDir: root}),
+  family,
   channel: "production",
   sourceCommit: "a".repeat(40),
-  nativeBuildNumber: 310000102,
+  nativeBuildNumber: familyBuildNumber(family.familyBaseVersion, 102),
 })
 plan.promotion = {
   selectedBetaReleaseSetId: "mentra-3.1.0-beta.101",
@@ -78,8 +79,8 @@ function finalizingRecord() {
       },
       candidates: {
         mentraApp: {
-          ios: {marketingVersion: "3.1.0", buildNumber: 310000102},
-          android: {marketingVersion: "3.1.0", buildNumber: 310000102},
+          ios: {marketingVersion: "3.1.0", buildNumber: familyBuildNumber(family.familyBaseVersion, 102)},
+          android: {marketingVersion: "3.1.0", buildNumber: familyBuildNumber(family.familyBaseVersion, 102)},
         },
       },
     },
@@ -131,8 +132,8 @@ function storeObservedFinalizingRecord() {
       compatibilityLab: null,
       candidates: {
         mentraApp: {
-          ios: {marketingVersion: "3.1.0", buildNumber: 310000102},
-          android: {marketingVersion: "3.1.0", buildNumber: 310000102},
+          ios: {marketingVersion: "3.1.0", buildNumber: familyBuildNumber(family.familyBaseVersion, 102)},
+          android: {marketingVersion: "3.1.0", buildNumber: familyBuildNumber(family.familyBaseVersion, 102)},
         },
       },
     },
@@ -163,7 +164,7 @@ test("finalizes a first promotion whose current app was only store-observed", ()
     checkpointUrl: `https://github.com/Mentra-Community/MentraOS/releases/download/promotion/${record.promotionId}.json`,
   })
   assert.equal(manifest.kind, "mentra-production-release")
-  assert.equal(manifest.native.buildNumber, 310000102)
+  assert.equal(manifest.native.buildNumber, familyBuildNumber(family.familyBaseVersion, 102))
   assert.ok(!record.evidence.some(({kind}) => kind.startsWith("staging-mobile-n")))
 })
 
@@ -188,7 +189,7 @@ test("creates the canonical production manifest from the finalizing checkpoint",
   })
   assert.equal(manifest.kind, "mentra-production-release")
   assert.equal(manifest.releaseIdentity, "3.1.0")
-  assert.equal(manifest.native.buildNumber, 310000102)
+  assert.equal(manifest.native.buildNumber, familyBuildNumber(family.familyBaseVersion, 102))
   assert.deepEqual(Object.keys(manifest.applications), ["mentraApp"])
   assert.equal(manifest.promotion.attempt, 2)
   assert.equal(manifest.promotion.checkpoint.state, "finalizing")

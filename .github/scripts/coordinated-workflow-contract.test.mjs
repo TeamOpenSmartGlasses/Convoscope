@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import {existsSync, readFileSync, mkdtempSync, rmSync} from "node:fs"
+import {existsSync, readFileSync, mkdtempSync, readdirSync, rmSync} from "node:fs"
 import {spawnSync} from "node:child_process"
 import {tmpdir} from "node:os"
 import path from "node:path"
@@ -66,6 +66,14 @@ test("production promotion is resumable and keeps irreversible actions behind se
     assert.match(source, /ref: main/)
   }
   assert.match(prepare, /group: production-release-prepare\n/)
+  // Candidates take the family's next sequence from the family container and
+  // record it there; the lab does the same in the current app's family.
+  assert.match(prepare, /--family-assets promotion-input\/family\/assets\.json/)
+  assert.match(prepare, /--current-family-assets promotion-input\/family\/current-assets\.json/)
+  assert.match(prepare, /--marker-directory promotion-output\/family-build-numbers/)
+  assert.match(prepare, /--family-markers-dir promotion-input\/family\/markers/)
+  assert.match(prepare, /--current-family-markers-dir promotion-input\/family\/current-markers/)
+  assert.match(prepare, /Record the allocated build numbers in the family containers/)
   assert.doesNotMatch(prepare, /group: production-release-prepare-\$\{\{/)
   assert.match(prepare, /--beta "\$\{\{ inputs\.beta_identity \}\}"/)
   assert.match(prepare, /production-promotion-assets\.mjs selection-digest/)
@@ -230,6 +238,17 @@ test("Cloud V2 deploys once per coordinated environment before mobile publicatio
   assert.match(cloud, /group: coordinated-cloud-v2-\$\{\{ inputs\.deployment_environment \}\}/)
   assert.match(cloud, /cancel-in-progress: false/)
   assert.match(cloud, /porter apply \\\n+            -w/)
+  // Porter's CLI otherwise tags from GITHUB_SHA, which on a workflow_dispatch
+  // from main is the dispatching commit, not the frozen source; the deploy
+  // verifies the observed image tag against the source, so the tag is explicit.
+  assert.match(cloud, /PORTER_TAG: \$\{\{ steps\.source\.outputs\.tag \}\}/)
+  assert.match(cloud, /--tag "\$PORTER_TAG" \\/)
+  // The frozen source may predate tooling fixes on main; scripts run from the
+  // workflow revision, which is the same revision the workflow file came from.
+  assert.match(cloud, /ref: \$\{\{ github\.sha \}\}\n\s+path: release-tooling/)
+  assert.doesNotMatch(cloud, /node \.github\/scripts\//)
+  assert.match(cloud, /node release-tooling\/\.github\/scripts\/coordinated-cloud-v2-records\.mjs resolve/)
+  assert.match(cloud, /node release-tooling\/\.github\/scripts\/coordinated-cloud-v2-records\.mjs create/)
   assert.match(cloud, /getent hosts "\$host"/)
   assert.match(cloud, /for probe in healthz ready/)
   assert.match(cloud, /porter kubectl -- get pods/)
@@ -306,7 +325,24 @@ test("mobile destinations use real TestFlight groups without changing the releas
 test("coordinated docs publish only after finalization to the matching channel", () => {
   const coordinator = workflow("coordinated-release.yml")
   const plan = jobBlock(coordinator, "plan")
-  const starterKit = jobBlock(coordinator, "starter-kit")
+  // Store build numbers come from the family formula with the run number as
+  // the sequence, for the app plan and the ASG client alike.
+  assert.match(plan, /allocate-family-build-sequence\.mjs allocate/)
+  assert.match(plan, /--owner "coordinated-run:\$\{GITHUB_RUN_ID\}"/)
+  assert.match(plan, /--native-build-number "\$\{\{ steps\.family-number\.outputs\.build_number \}\}"/)
+  assert.match(plan, /Record the family build number in the release container/)
+  assert.doesNotMatch(coordinator, /310000000|--native-build-sequence/)
+  const familyChecks = workflow("release-family-checks.yml")
+  assert.match(familyChecks, /--native-build-sequence 1 \\/)
+  assert.doesNotMatch(familyChecks, /310000001|--native-build-number/)
+  assert.match(
+    workflow("reusable-coordinated-ota.yml"),
+    /allocate-asg-version\.mjs \\\n[\s\S]{0,300}--build-number "\$\(jq -er \.native\.buildNumber release-intent\/release-plan\.json\)"/,
+  )
+  const starterKitJob = jobBlock(coordinator, "starter-kit")
+  // The Starter Kit request is shared with the production example: the
+  // coordinator only wires the reusable workflow.
+  const starterKit = jobBlock(workflow("reusable-coordinated-starter-kit.yml"), "starter-kit")
   const engineConsumer = jobBlock(coordinator, "engine-consumer")
   const exampleTestflight = jobBlock(coordinator, "example-testflight")
   const docs = jobBlock(coordinator, "docs")
@@ -320,9 +356,13 @@ test("coordinated docs publish only after finalization to the matching channel",
   // finalized as a separate record, so it can never make the beta incomplete.
   assert.match(finalize, /^    needs: \[plan, cloud-v2, ota, npm, sdk-native, mobile, engine-consumer\]$/m)
   assert.doesNotMatch(finalize, /starter-kit|example-testflight|example-google-play/)
-  assert.match(starterKit, /^    needs: \[plan, ota, npm, sdk-native, finalize\]$/m)
+  assert.match(starterKitJob, /^    needs: \[plan, ota, npm, sdk-native, finalize\]$/m)
+  assert.match(starterKitJob, /uses: \.\/\.github\/workflows\/reusable-coordinated-starter-kit\.yml/)
+  assert.match(starterKitJob, /if: needs\.plan\.outputs\.dry_run != 'true'/)
   assert.match(engineConsumer, /^    needs: \[plan, npm\]$/m)
   assert.match(starterKit, /coordinated-example-release\.yml/)
+  assert.match(starterKit, /production\) target_branch=main ;;/)
+  assert.match(starterKit, /container_tag="sdk-\$identity"/)
   assert.doesNotMatch(coordinator, /Freeze the Starter Kit channel source/)
   assert.doesNotMatch(coordinator, /--starter-kit-source|starterKitSource|Starter-Kit-Source/)
   assert.match(
@@ -591,4 +631,151 @@ test("iOS status reports the failed phase instead of downstream skips", (t) => {
     assert.equal(result.status, 0, result.stderr)
     assert.match(readFileSync(output, "utf8"), new RegExp(`^ios_result=${expected}$`, "m"))
   }
+})
+
+test("Play lane outputs in the production workflows are absolute paths", () => {
+  // fastlane runs every lane from inside the fastlane/ directory, so a
+  // relative output path lands one level deeper than the caller expects.
+  for (const name of [
+    "production-release-prepare.yml",
+    "production-release-status.yml",
+    "production-release-store-release.yml",
+    "production-release-store-submit.yml",
+    "production-release-example.yml",
+  ]) {
+    const source = workflow(name)
+    for (const match of source.matchAll(/GOOGLE_PLAY_[A-Z_]*OUTPUT=(\S+)/g)) {
+      assert.match(match[1], /^"\$GITHUB_WORKSPACE\//, `${name}: ${match[0]}`)
+    }
+  }
+})
+
+test("the production example is keyed on the promoted beta and never promotes a store listing", () => {
+  const example = workflow("production-release-example.yml")
+  const load = jobBlock(example, "load")
+  const finalize = jobBlock(example, "finalize-example")
+  const play = workflow("reusable-coordinated-example-google-play.yml")
+
+  assert.match(example, /group: production-release-example\n/)
+  assert.match(load, /environment:\n      name: production-store-status/)
+  assert.match(load, /git merge-base --is-ancestor "\$source_commit" origin\/main/)
+  assert.match(load, /npm view "\$name@\$RELEASE_IDENTITY" version/)
+  assert.match(load, /production-example\.mjs plan/)
+  // The example's number is the family's next sequence from the family
+  // container, recorded there before any upload; stores are not consulted.
+  assert.match(load, /--family-assets example-input\/family\/assets\.json/)
+  assert.match(load, /--marker-directory example-output\/family-build-number/)
+  assert.match(load, /--family-markers-dir example-input\/family\/markers/)
+  assert.match(load, /Record the allocated build number in the family container/)
+  assert.doesNotMatch(load, /--apple-inventory|--google-inventory|google_play_inventory/)
+  assert.match(load, /production-packages\.mjs ensure-container/)
+  assert.match(example, /uses: \.\/\.github\/workflows\/reusable-coordinated-starter-kit\.yml/)
+  assert.match(example, /uses: \.\/\.github\/workflows\/reusable-coordinated-example-testflight\.yml/)
+  assert.match(example, /uses: \.\/\.github\/workflows\/reusable-coordinated-example-google-play\.yml/)
+  assert.match(example, /production_build_number: \$\{\{ fromJSON\(needs\.load\.outputs\.build_number\) \}\}/)
+  assert.match(finalize, /example-release-records\.mjs/)
+  assert.match(load, /Recover the example plan a previous run already froze/)
+  assert.match(load, /--existing-plan example-input\/existing-plan\.json/)
+  assert.match(load, /cp release-intent\/release-plan\.json "release-intent\/\$PLAN_ASSET"/)
+  assert.match(load, /--file "release-intent\/\$PLAN_ASSET" \\\n\s+--name "\$PLAN_ASSET"/)
+  assert.doesNotMatch(load, /mv "[^"]*" "\1"/)
+  assert.match(finalize, /example-release-records\.mjs reconcile/)
+  assert.match(finalize, /if: steps\.results\.outputs\.published != 'true'/)
+  assert.doesNotMatch(finalize, /cmp existing-record\.json/)
+  assert.match(play, /if \[\[ "\$\(jq -er \.channel "\$plan"\)" == "production" \]\]; then/)
+  assert.match(play, /target_commitish <<< "\$release"\)" == "\$\(jq -er \.sourceCommit "\$plan"\)"/)
+  assert.match(finalize, /publish-immutable-release-asset\.mjs/)
+  assert.doesNotMatch(
+    example,
+    /production-status|store-submit|store-release|rollout|submit-for-review|app-store-version/i,
+  )
+  assert.doesNotMatch(example, /production-store-submission|production-store-release/)
+  // The Play lane runs its scripts from the workflow revision so a promoted
+  // beta that predates production support can still build the example.
+  assert.match(play, /Checkout example tooling from the workflow revision/)
+  assert.equal(
+    [...play.matchAll(/release-tooling\/\.github\/scripts\/coordinated-example-google-play\.mjs/g)].length,
+    4,
+  )
+  assert.doesNotMatch(play, /node \.github\/scripts\/coordinated-example-google-play\.mjs/)
+  const testflight = workflow("reusable-coordinated-example-testflight.yml")
+  assert.match(testflight, /release-tooling\/\.github\/scripts\/coordinated-example-testflight-record\.mjs/)
+  assert.doesNotMatch(testflight, /node \.github\/scripts\/coordinated-example-testflight-record\.mjs/)
+  assert.match(testflight, /elif \.channel == "production" then "Mentra Bluetooth Example"/)
+  assert.match(testflight, /if \.channel == "dev" then "internal" else "external" end/)
+  assert.doesNotMatch(example + testflight, /Mentra SDK Example|Production Candidates/)
+  assert.equal(existsSync(new URL("../workflows/reusable-production-starter-kit-android.yml", import.meta.url)), false)
+})
+
+// Every publish-immutable-release-asset.mjs invocation in a workflow, as its
+// raw --file and --name arguments. Each invocation is cut at its own
+// --repository argument so one call can never borrow another's arguments.
+export function immutablePublishArguments(source) {
+  const invocations = []
+  const parts = source.split("publish-immutable-release-asset.mjs")
+  for (const part of parts.slice(1)) {
+    const scope = part.split("--repository")[0]
+    const argument = (flag) => {
+      const match = new RegExp(`${flag}\\s+(?:"([^"]*)"|(\\S+))`).exec(scope)
+      return match ? (match[1] ?? match[2]) : null
+    }
+    invocations.push({file: argument("--file"), name: argument("--name")})
+  }
+  return invocations
+}
+
+// A --file whose basename is not the --name fails at publication time. Two
+// spellings are accepted: the basename of the file string equals the name
+// string (plain names, "$variable" names, and "${{ ... }}" expressions alike),
+// or both are the asset_path and asset_name outputs of the same step, which
+// prepareEvidenceAsset in production-promotion-assets.mjs derives together.
+export function immutablePublishMismatches(source) {
+  return immutablePublishArguments(source).filter(({file, name}) => {
+    if (!file || !name) return true
+    if (file.split("/").pop() === name) return false
+    const pathOutput = /^\$\{\{ steps\.([a-z-]+)\.outputs\.asset_path \}\}$/.exec(file)
+    const nameOutput = /^\$\{\{ steps\.([a-z-]+)\.outputs\.asset_name \}\}$/.exec(name)
+    return !(pathOutput && nameOutput && pathOutput[1] === nameOutput[1])
+  })
+}
+
+test("immutable assets in every production workflow are published from a file named like the asset", () => {
+  const names = readdirSync(new URL("../workflows/", import.meta.url)).filter((name) =>
+    /^production-release-.*\.yml$/.test(name),
+  )
+  assert.ok(names.length >= 10, `expected the production workflows, found ${names.length}`)
+  let invocations = 0
+  for (const name of names) {
+    const source = workflow(name)
+    invocations += immutablePublishArguments(source).length
+    assert.deepEqual(immutablePublishMismatches(source), [], `${name} publishes an asset under another name`)
+  }
+  assert.ok(invocations >= 18, `expected every publisher invocation to be inspected, found ${invocations}`)
+})
+
+test("the immutable publish contract inspects each invocation on its own", () => {
+  const snippet = `
+          node .github/scripts/publish-immutable-release-asset.mjs \\
+            --file "promotion-output/$plan_name" \\
+            --name "$plan_name" \\
+            --release-id "1" \\
+            --repository "$GITHUB_REPOSITORY"
+          node .github/scripts/publish-immutable-release-asset.mjs \\
+            --file promotion-input/current/release-plan.json \\
+            --name current-production-release-plan.json \\
+            --release-id "1" \\
+            --repository "$GITHUB_REPOSITORY"
+          node .github/scripts/publish-immutable-release-asset.mjs --file "\${{ steps.a.outputs.asset_path }}" --name "\${{ steps.b.outputs.asset_name }}" --release-id "1" --repository "$GITHUB_REPOSITORY"
+          node .github/scripts/publish-immutable-release-asset.mjs --file "\${{ steps.a.outputs.asset_path }}" --name "\${{ steps.a.outputs.asset_name }}" --release-id "1" --repository "$GITHUB_REPOSITORY"
+          node .github/scripts/publish-immutable-release-asset.mjs \\
+            --file promotion-input/stores/current-production-store-inventory.json \\
+            --name current-production-store-inventory.json \\
+            --release-id "1" \\
+            --repository "$GITHUB_REPOSITORY"
+  `
+  assert.equal(immutablePublishArguments(snippet).length, 5)
+  assert.deepEqual(
+    immutablePublishMismatches(snippet).map(({name}) => name),
+    ["current-production-release-plan.json", "\${{ steps.b.outputs.asset_name }}"],
+  )
 })
