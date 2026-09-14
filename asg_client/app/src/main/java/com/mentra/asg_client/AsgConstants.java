@@ -1,6 +1,18 @@
 package com.mentra.asg_client;
 
 public class AsgConstants {
+    /** Keep BES receiving across the prep-to-snap gap and successive short cues. */
+    public static final long I2S_IDLE_CLOSE_MS = 750L;
+
+    /** Bound a missing readiness reply without playing into a closed BES input. */
+    public static final long I2S_READY_TIMEOUT_MS = 1500L;
+
+    /** Compatibility only for BES firmware without the readiness acknowledgement. */
+    public static final long I2S_LEGACY_SETTLE_MS = 250L;
+
+    /** Internal service extra carrying the correlated BES START request. */
+    public static final String EXTRA_I2S_REQUEST_ID = "i2s_request_id";
+
     /** Maximum wait for Camera2 re-registration before a FOV readiness error. */
     public static final long CAMERA_FOV_READY_TIMEOUT_MS = 20_000L;
 

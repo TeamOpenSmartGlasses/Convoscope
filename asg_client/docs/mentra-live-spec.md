@@ -224,6 +224,13 @@ While the Mentra Live hotspot is active, `asg_client` runs an embedded HTTP serv
 
 Mentra Live exposes microphone/audio paths used for recording, streaming, and device audio cues. Battery warnings and other local prompts can use bundled audio assets. Audio behavior spans both MTK Android code and BES-controlled audio/Bluetooth firmware behavior.
 
+Local ASG cues wait asynchronously for a correlated BES I2S-ready reply before starting PCM
+on firmware advertising `wire_caps.i2s_ready: 1`. BES replies only after its audio thread
+has opened the receiver and armed speaker output. ASG retains the bridge for 750ms between
+cues, including camera prep-to-snap transitions; shutdown still stops it immediately.
+Old BES firmware uses a 250ms compatibility delay. A missing readiness reply on capable
+firmware cancels the cue after 1500ms instead of knowingly playing into an unready input.
+
 ### LEDs and user feedback
 
 Mentra Live has two LED systems:
