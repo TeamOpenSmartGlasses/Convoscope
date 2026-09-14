@@ -317,6 +317,14 @@ test("mobile destinations use real TestFlight groups without changing the releas
 test("coordinated docs publish only after finalization to the matching channel", () => {
   const coordinator = workflow("coordinated-release.yml")
   const plan = jobBlock(coordinator, "plan")
+  // Store build numbers come from the family formula with the run number as
+  // the sequence, for the app plan and the ASG client alike.
+  assert.match(plan, /--native-build-sequence "\$\{\{ github\.run_number \}\}"/)
+  assert.doesNotMatch(coordinator, /310000000|--native-build-number/)
+  assert.match(
+    workflow("reusable-coordinated-ota.yml"),
+    /allocate-asg-version\.mjs \\\n[\s\S]{0,300}--sequence "\$\{\{ github\.run_number \}\}"/,
+  )
   const starterKitJob = jobBlock(coordinator, "starter-kit")
   // The Starter Kit request is shared with the production example: the
   // coordinator only wires the reusable workflow.

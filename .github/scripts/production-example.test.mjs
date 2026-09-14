@@ -49,6 +49,19 @@ test("allocates one example build number above both stores and the promoted beta
     310000401,
   )
   assert.equal(allocateExampleBuildNumber({betaPlan, appleInventory: apple(1)}), 310000213)
+  // Store numbers outside the family window (a stray upload, another family) do not count.
+  assert.equal(
+    allocateExampleBuildNumber({betaPlan, appleInventory: apple(900000001), googleInventory: google(320000217)}),
+    310000213,
+  )
+  assert.throws(
+    () =>
+      allocateExampleBuildNumber({
+        betaPlan: {...betaPlan, native: {...betaPlan.native, buildNumber: 900000002}},
+        appleInventory: apple(1),
+      }),
+    /outside the family window/,
+  )
   assert.throws(
     () => allocateExampleBuildNumber({betaPlan, appleInventory: {bundleId: "com.mentra.mentra", maxBuildNumber: 1}}),
     /does not identify/,

@@ -3,39 +3,35 @@ import {readFileSync, writeFileSync} from "node:fs"
 import path from "node:path"
 import {fileURLToPath} from "node:url"
 
+import {BUILD_NUMBER_MAX_SEQUENCE, familyBuildNumberPrefix, familyBuildNumberWindow} from "./release-family.mjs"
+
 const ASSET_PATTERN = /^mentra-live-asg-(\d+)-([0-9a-f]{64})\.(apk|json)$/
-// ASG version codes are derived from the family base version so the code and
-// the versionName describe the same release: MAJOR*100_000_000 +
-// MINOR*1_000_000 + PATCH*10_000 + SEQUENCE, where SEQUENCE counts the distinct
-// ASG builds of that base version (1..9999). Two legacy namespaces sit below
-// it: the original publisher allocated seconds since 2025-01-01 (below 60
-// million) and the first coordinated allocator used 100_000_000 + run number.
-// Requiring MAJOR >= 2 keeps every derived code above both, so the first
-// derived build of any family is still an upgrade for every glasses in the
-// field, and MAJOR <= 20 keeps it inside the Android-safe range.
-const BASE_VERSION_PATTERN = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/
-const MAJOR_WEIGHT = 100_000_000
-const MINOR_WEIGHT = 1_000_000
-const PATCH_WEIGHT = 10_000
-const MAX_SEQUENCE = PATCH_WEIGHT - 1
+// ASG version codes use the family build-number formula shared with the Mentra
+// App (see release-family.mjs): the family prefix plus a sequence. The
+// coordinated run number is the sequence, so an ASG rebuilt in a run carries
+// the same number as the app built in that run; a fingerprint already built
+// keeps its recorded code. Assets outside the family window belong to older
+// schemes and are ignored.
+const MAX_SEQUENCE = BUILD_NUMBER_MAX_SEQUENCE
 
 export function asgVersionCodePrefix(baseVersion) {
-  const match = BASE_VERSION_PATTERN.exec(baseVersion || "")
-  if (!match) throw new Error(`ASG base version ${JSON.stringify(baseVersion)} must be a plain X.Y.Z version`)
-  const [major, minor, patch] = match.slice(1).map(Number)
-  if (major < 2 || major > 20) throw new Error(`ASG base version major ${major} must be between 2 and 20`)
-  if (minor > 99 || patch > 99) throw new Error("ASG base version minor and patch must be at most 99")
-  return major * MAJOR_WEIGHT + minor * MINOR_WEIGHT + patch * PATCH_WEIGHT
+  return familyBuildNumberPrefix(baseVersion)
 }
 
-export function allocateAsgVersion({assets, fingerprint, baseVersion}) {
+export function allocateAsgVersion({assets, fingerprint, baseVersion, sequence}) {
   if (!Array.isArray(assets)) throw new Error("GitHub release assets must be an array")
   if (!/^[0-9a-f]{64}$/.test(fingerprint)) throw new Error("Invalid ASG fingerprint")
-  const prefix = asgVersionCodePrefix(baseVersion)
+  if (!Number.isSafeInteger(sequence) || sequence < 1 || sequence > MAX_SEQUENCE) {
+    throw new Error(`ASG build sequence ${JSON.stringify(sequence)} must be between 1 and ${MAX_SEQUENCE}`)
+  }
+  const window = familyBuildNumberWindow(baseVersion)
+  const prefix = window.prefix
   const recognized = assets.flatMap((asset) => {
     const match = ASSET_PATTERN.exec(asset.name ?? "")
     if (!match) return []
-    return [{id: asset.id, name: asset.name, versionCode: Number(match[1]), fingerprint: match[2], type: match[3]}]
+    const versionCode = Number(match[1])
+    if (versionCode < window.first || versionCode > window.last) return []
+    return [{id: asset.id, name: asset.name, versionCode, fingerprint: match[2], type: match[3]}]
   })
   const matching = recognized.filter((asset) => asset.fingerprint === fingerprint)
   const apks = matching.filter((asset) => asset.type === "apk")
@@ -45,11 +41,6 @@ export function allocateAsgVersion({assets, fingerprint, baseVersion}) {
     if (apks[0].versionCode !== provenance[0].versionCode) {
       throw new Error("ASG artifact and provenance use different version codes")
     }
-    // The versionName is part of the fingerprint, so a complete pair for this
-    // fingerprint was built for this base version and must carry its prefix.
-    if (apks[0].versionCode - prefix < 1 || apks[0].versionCode - prefix > MAX_SEQUENCE) {
-      throw new Error(`Existing ASG versionCode ${apks[0].versionCode} does not belong to base version ${baseVersion}`)
-    }
     return {
       exists: true,
       versionCode: apks[0].versionCode,
@@ -58,12 +49,14 @@ export function allocateAsgVersion({assets, fingerprint, baseVersion}) {
       orphanAssetIds: [],
     }
   }
-  const usedSequences = recognized
-    .map((asset) => asset.versionCode - prefix)
-    .filter((sequence) => sequence >= 1 && sequence <= MAX_SEQUENCE)
-  const sequence = usedSequences.length === 0 ? 1 : Math.max(...usedSequences) + 1
-  if (sequence > MAX_SEQUENCE) throw new Error(`Base version ${baseVersion} has exhausted its ASG version codes`)
-  const versionCode = prefix + sequence
+  // The run number is the sequence; when a rerun or an older run would land
+  // on or below a code already used for another build, take the next free one
+  // so codes stay unique and increasing within the family.
+  const usedSequences = recognized.map((asset) => asset.versionCode - prefix)
+  const highestUsed = usedSequences.length === 0 ? 0 : Math.max(...usedSequences)
+  const allocated = Math.max(sequence, highestUsed + 1)
+  if (allocated > MAX_SEQUENCE) throw new Error(`Base version ${baseVersion} has exhausted its ASG version codes`)
+  const versionCode = prefix + allocated
   return {
     exists: false,
     versionCode,
@@ -90,6 +83,7 @@ function main() {
     assets: JSON.parse(readFileSync(path.resolve(args.assets), "utf8")),
     fingerprint: args.fingerprint,
     baseVersion: args["base-version"],
+    sequence: Number(args.sequence),
   })
   writeFileSync(path.resolve(args.output), `${JSON.stringify(result, null, 2)}\n`)
 }

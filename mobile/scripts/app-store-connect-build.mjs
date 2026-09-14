@@ -592,6 +592,10 @@ export async function appStoreInventory(client, {app}) {
     bundleId: app.attributes?.bundleId,
     current,
     maxBuildNumber: buildNumbers.length === 0 ? 0 : Math.max(...buildNumbers),
+    // Every numeric build the app holds, so an allocator can look inside one
+    // family's window instead of trusting the global maximum, which any stray
+    // upload (a 900000001 once) would poison for good.
+    buildNumbers: [...new Set(buildNumbers)].sort((left, right) => left - right),
   }
 }
 

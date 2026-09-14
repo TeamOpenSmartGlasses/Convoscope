@@ -137,6 +137,21 @@ gate open: `attest` the same check later, at any state before public release
 approval, and `release` refuses to proceed while a deferral is unresolved.
 `status` lists the deferred gates still to attest.
 
+## Build numbers
+
+Every store build number of the family, the Mentra App's iOS build and Android
+version code and the ASG client's version code, is derived from the family
+base version: `MAJOR × 100,000,000 + MINOR × 10,000,000 + PATCH × 100,000 +
+sequence` (minor at most 9, patch at most 99, sequence below 100,000). Dev and
+beta use the coordinated run number as the sequence, so the app and an ASG
+client rebuilt in the same run share a number; production takes the next free
+sequence above everything the stores already hold inside the family's window,
+and a compatibility-lab rebuild of the current app takes the next free
+sequence in that app's own family. Numbers outside the window, whether a
+legacy scheme or a stray upload, never influence allocation. Every channel of
+a family therefore orders naturally on both stores: beta < production < the
+next family's dev and beta.
+
 ## Phase 1 - select and freeze
 
 `start` dispatches `production-release-prepare.yml`. It only reads completed

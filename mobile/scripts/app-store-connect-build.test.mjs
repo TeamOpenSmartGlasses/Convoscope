@@ -189,6 +189,7 @@ test("inventories the current public App Store build and maximum allocated build
     app: {id: "app-1", attributes: {bundleId: "com.mentra.mentra"}},
   })
   assert.equal(inventory.maxBuildNumber, 20)
+  assert.deepEqual(inventory.buildNumbers, [19, 20])
   assert.deepEqual(inventory.current, {
     versionId: "version-30",
     buildId: "build-19",
@@ -209,6 +210,7 @@ test("allows a new App Store app with no public version", async () => {
   })
   assert.equal(inventory.current, null)
   assert.equal(inventory.maxBuildNumber, 0)
+  assert.deepEqual(inventory.buildNumbers, [])
 })
 
 test("can scope an exact build number to its marketing version", async () => {

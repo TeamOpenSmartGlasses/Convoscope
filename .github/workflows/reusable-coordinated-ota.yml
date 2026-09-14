@@ -185,6 +185,7 @@ jobs:
             --assets coordinated-ota-work/release-assets.json \
             --fingerprint "$ASG_FINGERPRINT" \
             --base-version "$ASG_BASE_VERSION" \
+            --sequence "${{ github.run_number }}" \
             --output coordinated-ota-work/asg-allocation.json
 
           if [[ "${{ inputs.dry_run }}" != "true" ]]; then

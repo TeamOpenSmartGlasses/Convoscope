@@ -15,7 +15,12 @@ import path from "node:path"
 import {fileURLToPath} from "node:url"
 
 import {validateSelectedBeta} from "./prepare-production-promotion.mjs"
-import {createReleasePlan, loadReleaseFamily, serializeReleaseRecord} from "./release-family.mjs"
+import {
+  createReleasePlan,
+  familyBuildNumberWindow,
+  loadReleaseFamily,
+  serializeReleaseRecord,
+} from "./release-family.mjs"
 
 export const EXAMPLE_BUNDLE_ID = "com.mentra.bluetoothsdkexample"
 // iOS is distributed like a public beta: an external TestFlight group with a
@@ -53,7 +58,25 @@ export function allocateExampleBuildNumber({betaPlan, appleInventory, googleInve
   if (!Number.isSafeInteger(betaPlan?.native?.buildNumber) || betaPlan.native.buildNumber < 1) {
     throw new Error("Selected beta has no native build number")
   }
-  const buildNumber = Math.max(appleInventory.maxBuildNumber, googleMax, betaPlan.native.buildNumber) + 1
+  // Same family window rule as the Mentra App: only numbers of this family
+  // count, so a stray upload cannot drag the example's numbers away.
+  const window = familyBuildNumberWindow(betaPlan.familyBaseVersion)
+  if (betaPlan.native.buildNumber < window.first || betaPlan.native.buildNumber > window.last) {
+    throw new Error(`Selected beta build number ${betaPlan.native.buildNumber} is outside the family window`)
+  }
+  const inWindow = (value) => Number.isSafeInteger(value) && value >= window.first && value <= window.last
+  const appleNumbers = (appleInventory.buildNumbers || [appleInventory.maxBuildNumber]).filter(inWindow)
+  const googleNumbers =
+    googleInventory === null
+      ? []
+      : Object.values(googleInventory.tracks || {})
+          .flat()
+          .flatMap((release) => release?.versionCodes || [])
+          .map(Number)
+          .concat([googleMax])
+          .filter(inWindow)
+  const buildNumber = Math.max(...appleNumbers, ...googleNumbers, betaPlan.native.buildNumber) + 1
+  if (buildNumber > window.last) throw new Error("Example build numbers are exhausted for this family")
   if (buildNumber > ANDROID_MAX_VERSION_CODE) throw new Error("Example build number exceeds the Android-safe range")
   return buildNumber
 }
