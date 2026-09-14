@@ -134,9 +134,11 @@ def run(args):
 def verify_signature(apk):
     output = run([tool("apksigner"), "verify", "--verbose", "--print-certs", str(apk)]).decode()
     certs = re.findall(r"Signer #\d+ certificate SHA-256 digest: ([a-fA-F0-9]+)", output)
-    cert = run(["keytool", "-exportcert", "-keystore", "mobile/credentials/upload-keystore.jks",
+    # keytool may print JKS migration warnings on stderr. Only DER bytes belong
+    # in the certificate digest.
+    cert = subprocess.check_output(["keytool", "-exportcert", "-keystore", "mobile/credentials/upload-keystore.jks",
                 "-alias", os.environ["ORG_GRADLE_PROJECT_MENTRAOS_UPLOAD_KEY_ALIAS"],
-                "-storepass:env", "ORG_GRADLE_PROJECT_MENTRAOS_UPLOAD_STORE_PASSWORD"])
+                "-storepass:env", "ORG_GRADLE_PROJECT_MENTRAOS_UPLOAD_STORE_PASSWORD"], stderr=subprocess.PIPE)
     if certs != [hashlib.sha256(cert).hexdigest()]:
         raise ValueError("APK signer does not match the upload certificate")
 
