@@ -2,12 +2,12 @@ package com.mentra.asg_client.service.core.handlers;
 
 import android.content.Context;
 import android.util.Log;
-import com.mentra.asg_client.io.hardware.core.HardwareManagerFactory;
 import com.mentra.asg_client.AsgConstants;
 import com.mentra.asg_client.camera.model.PhotoCaptureSettings;
 import com.mentra.asg_client.camera.policy.PhotoMode;
 import com.mentra.asg_client.camera.policy.PhotoSizeTier;
 import com.mentra.asg_client.io.file.core.FileManager;
+import com.mentra.asg_client.io.hardware.core.HardwareManagerFactory;
 import com.mentra.asg_client.io.media.core.MediaCaptureService;
 import com.mentra.asg_client.service.core.constants.BatteryConstants;
 import com.mentra.asg_client.service.legacy.managers.AsgClientServiceManager;
@@ -286,6 +286,14 @@ public class PhotoCommandHandler extends BaseMediaCommandHandler {
                 logCommandResult("take_photo", false, "Media capture service not available");
                 return false;
             }
+            if (data.optBoolean("presend_thumbnail", false)
+                    && (webhookUrl.trim().isEmpty() || !bleImgId.matches("I[A-Za-z0-9_-]{1,15}"))) {
+                captureService.sendPhotoErrorResponse(
+                        requestId,
+                        "INVALID_REQUEST",
+                        "presend_thumbnail requires an upload target and a valid bleImgId");
+                return false;
+            }
             if (transferMethod == null || !PHOTO_TRANSFER_METHODS.contains(transferMethod)) {
                 Object invalidTransferMethod = data.opt("transferMethod");
                 String message =
@@ -407,6 +415,9 @@ public class PhotoCommandHandler extends BaseMediaCommandHandler {
             }
 
             // Process photo capture based on transfer method
+            if (data.optBoolean("presend_thumbnail", false)) {
+                captureService.requestThumbnail(requestId, bleImgId);
+            }
             if ("ble".equals(transferMethod) || !bleImgId.isEmpty()) {
                 captureService.markBlePhotoPipelineStart(requestId);
             }
@@ -521,6 +532,7 @@ public class PhotoCommandHandler extends BaseMediaCommandHandler {
                     mode,
                     flash,
                     sound,
+                    compress,
                     exposureTimeNs,
                     iso,
                     captureSettings);
@@ -537,6 +549,7 @@ public class PhotoCommandHandler extends BaseMediaCommandHandler {
                         mode,
                         flash,
                         sound,
+                        compress,
                         exposureTimeNs,
                         iso,
                         captureSettings);

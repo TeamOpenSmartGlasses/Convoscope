@@ -120,7 +120,7 @@ interface ActiveRequest {
  */
 export const CAPTURE_PIPELINE_TIMEOUT_MS = 45_000
 export const CAMERA_WARM_UP_DEFAULT_DURATION_MS = 15_000
-export const CAMERA_WARM_UP_MAX_DURATION_MS = 60_000
+export const CAMERA_WARM_UP_MAX_DURATION_MS = 300_000
 
 let bleRequestCounter = 0
 
@@ -131,10 +131,8 @@ function mintBleRequestId(): string {
   return bleRequestCounter.toString(16).padStart(4, "0")
 }
 
-function toNativeCompression(compress: PhotoOpts["compress"]): "none" | "medium" | "heavy" {
-  if (compress === "high") return "heavy"
-  if (compress === "low" || compress === "medium") return "medium"
-  return "none"
+function toNativeCompression(compress: PhotoOpts["compress"]): "none" | "low" | "medium" | "high" {
+  return compress ?? "none"
 }
 
 export class PhonePhotoCoordinator {
@@ -277,6 +275,16 @@ export class PhonePhotoCoordinator {
         ...(opts.mfnr != null ? {mfnr: opts.mfnr} : {}),
         ispDigitalGain: opts.ispDigitalGain,
         ispAnalogGain: opts.ispAnalogGain,
+      }).then((response) => {
+        // Native success is emitted only after the direct/phone-relayed upload
+        // completes. It is an independent completion signal when photo.ready
+        // cannot reach this phone (for example, a cross-pod WS routing gap).
+        // Older native bridges may resolve at dispatch with no response: those
+        // must still wait for the cloud push, never return an unuploaded image.
+        if (response?.state !== "success" || response.requestId !== bleRequestId) return
+        const e = this.activeRequests.get(requestId)
+        if (!e || e.abort.signal.aborted) return
+        e.resolve({photoUrl: readUrl, mimeType: "image/jpeg", size: -1})
       }).catch((err) => {
         const e = this.activeRequests.get(requestId)
         if (!e) return

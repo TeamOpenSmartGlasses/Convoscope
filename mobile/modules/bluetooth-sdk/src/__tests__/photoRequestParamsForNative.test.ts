@@ -11,6 +11,14 @@ const baseParams = {
 }
 
 describe("photoRequestParamsForNative", () => {
+  it("presends a thumbnail only when opted in, preserving the full-photo options", () => {
+    expect(photoRequestParamsForNative(baseParams)).not.toHaveProperty("presend_thumbnail")
+    expect(photoRequestParamsForNative({...baseParams, presend_thumbnail: false})).not.toHaveProperty("presend_thumbnail")
+    expect(photoRequestParamsForNative({...baseParams, presend_thumbnail: true})).toEqual({
+      ...photoRequestParamsForNative(baseParams), presend_thumbnail: true,
+    })
+    expect(photoRequestParamsForNative({...baseParams, presend_thumbnail: true, transferMethod: "direct"}).transferMethod).toBe("direct")
+  })
   it("produces only supported native payload keys", () => {
     const payload = photoRequestParamsForNative(baseParams)
     expect(Object.keys(payload).sort()).toEqual(

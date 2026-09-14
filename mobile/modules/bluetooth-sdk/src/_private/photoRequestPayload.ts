@@ -45,6 +45,9 @@ export function photoRequestParamsForNative(params: PhotoRequestParams): Record<
     sound: params.sound,
   }
   const requestId = nonBlankString(params.requestId)
+  if (params.presend_thumbnail === true) {
+    payload.presend_thumbnail = true
+  }
   if (requestId != null) {
     payload.requestId = requestId
   }
