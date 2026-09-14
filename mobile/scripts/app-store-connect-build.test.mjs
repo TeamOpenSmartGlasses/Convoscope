@@ -746,6 +746,10 @@ test("recognizes the exact build after App Store submission", async () => {
   })
   assert.equal(status.promoted, true)
   assert.equal(status.state, "WAITING_FOR_REVIEW")
+  // Versions are listed through the app; the top-level collection answers 403.
+  assert.match(api.calls[0].resource, /^\/v1\/apps\/app-1\/appStoreVersions\?/)
+  assert.match(api.calls[0].resource, /filter%5BversionString%5D=3\.1\.0/)
+  assert.doesNotMatch(api.calls[0].resource, /filter%5Bapp%5D/)
 })
 
 test("recognizes a build that App Store Connect is processing for distribution", async () => {

@@ -537,10 +537,12 @@ export async function setBetaBuildWhatsNew(client, {buildId, locale = "en-US", w
   return {localization: localization.data, reused: false}
 }
 
+// App Store versions are listed through the app; there is no top-level
+// /v1/appStoreVersions collection (that request answers 403, seen on the
+// first live 3.1.1 submission read-back, run 34891948855).
 export async function findAppStoreVersion(client, {appId, versionString}) {
   const response = await client.request(
-    query("/v1/appStoreVersions", {
-      "filter[app]": appId,
+    query(`/v1/apps/${encodeURIComponent(appId)}/appStoreVersions`, {
       "filter[platform]": "IOS",
       "filter[versionString]": versionString,
       "limit": "2",
