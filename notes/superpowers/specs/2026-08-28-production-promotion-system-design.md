@@ -586,7 +586,18 @@ for Mentra App, and promotion-record URL.
 
 ### Google Play
 
-Upload each AAB to the app's internal testing track. Use a release name such as:
+The Mentra App candidate uploads to the `production` track as a **draft**
+release that nothing in the pipeline rolls out: the app's `internal` and `beta`
+tracks serve pre-formula version codes above every family window (see the
+family build numbers spec, "Google Play track floors"), while the served
+production release is the exact floor the prepare guard enforces. The Play
+Console shows the draft under Production; Phase 9 submits it. Tester installs
+of the Android candidate need a fresh closed testing track or Internal App
+Sharing; until one exists, Android candidate acceptance uses the beta of the
+same source.
+
+Upload each Starter Kit AAB to that app's internal testing track. Use a
+release name such as:
 
 ```text
 PRODUCTION CANDIDATE 3.1.0 — build 310000123 — source abcdef12
@@ -694,9 +705,10 @@ For Mentra App updates and future Starter Kit updates:
    intended staged-rollout settings in Play Console.
 3. Return to the CLI and request the store-submission transition.
 
-After protected approval, automation promotes the exact accepted
-internal-track version code into a production release, sends it for review,
-reads back the release/version code, and records the review state. If a
+After protected approval, automation verifies that the exact accepted
+version code is the production draft (it was uploaded there in Phase 7), sends
+it for review, reads back the release/version code, and records the review
+state. If a
 human-only Play Console field blocks submission, the workflow links directly to
 it and stops before committing the edit. The README then supplies the exact
 **Review release** and **Send for review** fallback steps.

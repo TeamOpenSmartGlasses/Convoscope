@@ -158,7 +158,7 @@ test("serializes records canonically and finalizes only complete release results
     "npm": (name) => `${name}@${plan.releaseIdentity}`,
     "maven-central": () => `com.mentraglass:bluetooth-sdk:${plan.releaseIdentity}`,
     "swift-package-manager": () => `Mentra-Community/mentra-bluetooth-sdk-ios@${plan.releaseIdentity}`,
-    "google-play": () => `com.mentra.mentra:${plan.native.buildNumber}:beta`,
+    "google-play": () => `com.mentra.mentra:${plan.native.buildNumber}:internal-app-sharing`,
     "app-store-connect": () =>
       `com.mentra.mentra:${plan.native.marketingVersion}:${plan.native.buildNumber}:Mentra Staging`,
   }

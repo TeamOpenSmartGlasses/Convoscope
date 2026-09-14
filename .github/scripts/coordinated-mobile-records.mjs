@@ -47,7 +47,32 @@ function publication({status, coordinate, url, provenanceUrl, file}) {
   }
 }
 
-export function createAndroidRecord({plan, apk, apkUrl, aab, aabUrl, playTrack, storeStatus, provenanceUrl}) {
+// Internal App Sharing serves one Play-signed artifact per upload with no
+// track floor. Its download URL is the publication; the digest must be the
+// AAB that was built.
+function internalSharingUrl({playTrack, storeStatus, internalSharing, aab}) {
+  if (playTrack !== "internal-app-sharing") {
+    if (internalSharing) throw new Error(`Internal App Sharing evidence does not belong to the ${playTrack} track`)
+    return "https://play.google.com/console/"
+  }
+  if (storeStatus === "built") return "https://play.google.com/console/"
+  if (internalSharing?.sha256 !== sha256File(aab)) {
+    throw new Error("Internal App Sharing evidence does not match the built AAB")
+  }
+  return internalSharing.downloadUrl
+}
+
+export function createAndroidRecord({
+  plan,
+  apk,
+  apkUrl,
+  aab,
+  aabUrl,
+  playTrack,
+  storeStatus,
+  provenanceUrl,
+  internalSharing,
+}) {
   validatePlan(plan)
   if (!playTrack) throw new Error("Google Play track is required")
   return {
@@ -58,7 +83,7 @@ export function createAndroidRecord({plan, apk, apkUrl, aab, aabUrl, playTrack, 
         "google-play": publication({
           status: storeStatus,
           coordinate: `com.mentra.mentra:${plan.native.buildNumber}:${playTrack}`,
-          url: "https://play.google.com/console/",
+          url: internalSharingUrl({playTrack, storeStatus, internalSharing, aab}),
           provenanceUrl,
           file: aab,
         }),
@@ -159,6 +184,7 @@ function main() {
       playTrack: args["play-track"],
       storeStatus: args.status,
       provenanceUrl: args["provenance-url"],
+      internalSharing: args["internal-sharing"] ? readJson(path.resolve(args["internal-sharing"])) : undefined,
     })
   } else if (command === "create-ios") {
     record = createIosRecord({

@@ -450,7 +450,9 @@ function expectedPublicationCoordinate(plan, memberName, target) {
   if (target === "swift-package-manager") return `Mentra-Community/mentra-bluetooth-sdk-ios@${version}`
   const channels = {
     dev: {play: "internal", appStore: "Mentra Dev"},
-    beta: {play: "beta", appStore: "Mentra Staging"},
+    // Betas use Internal App Sharing while the Play beta track serves a
+    // pre-formula build number above every family window.
+    beta: {play: "internal-app-sharing", appStore: "Mentra Staging"},
     production: {play: "production", appStore: "App Store"},
   }
   const selected = channels[plan.channel]

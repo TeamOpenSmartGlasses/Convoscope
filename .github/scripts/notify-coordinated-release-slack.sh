@@ -134,6 +134,9 @@ fi
 
 newline=$'\n'
 android_line="*$(icon "$android_result") Android* - $(label "$android_result") - ${android_detail}${newline}Google Play: ${PLAY_TRACK:-unknown}"
+if [[ -n "${PLAY_INSTALL_URL:-}" ]]; then
+  android_line+=" - <${PLAY_INSTALL_URL}|Install from Google Play>"
+fi
 ios_line="*$(icon "$ios_result") iOS* - $(label "$ios_result") - ${ios_detail}${newline}TestFlight: ${TESTFLIGHT_GROUP:-unknown}"
 if [[ -n "${TESTFLIGHT_DISTRIBUTION_STATUS:-}" ]]; then
   ios_line+=" - ${TESTFLIGHT_DISTRIBUTION_STATUS}"

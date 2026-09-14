@@ -102,7 +102,7 @@ jobs:
             MENTRA_PHASED_RELEASE=true \
             bundle exec fastlane promote_app_store
 
-      - name: Create or reconcile Google Play production drafts
+      - name: Verify the exact Google Play production draft
         run: |
           set -euo pipefail
           mkdir -p play-tools/fastlane promotion-output/play
@@ -111,13 +111,6 @@ jobs:
           cd play-tools
           bundle install
           build=$(jq -er .coordinates.candidates.mentraApp.android.buildNumber ../promotion-input/current.json)
-          APP_PACKAGE_NAME=com.mentra.mentra \
-            GOOGLE_PLAY_SOURCE_TRACK=internal \
-            GOOGLE_PLAY_TARGET_TRACK=production \
-            GOOGLE_PLAY_VERSION_CODE="$build" \
-            GOOGLE_PLAY_RELEASE_STATUS=draft \
-            GOOGLE_PLAY_PROMOTION_OUTPUT="$GITHUB_WORKSPACE/promotion-output/play/mentra.json" \
-            bundle exec fastlane promote_google_play
           APP_PACKAGE_NAME=com.mentra.mentra \
             GOOGLE_PLAY_INVENTORY_OUTPUT="$GITHUB_WORKSPACE/play-tools/mentraApp-inventory.json" \
             bundle exec fastlane google_play_inventory
