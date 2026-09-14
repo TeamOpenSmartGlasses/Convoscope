@@ -48,18 +48,27 @@ function publication({status, coordinate, url, provenanceUrl, file}) {
 }
 
 // Internal App Sharing serves one Play-signed artifact per upload with no
-// track floor. Its download URL is the publication; the digest must be the
-// AAB that was built.
-function internalSharingUrl({playTrack, storeStatus, internalSharing, aab}) {
+// track floor. Its download URL is the publication; the digest and
+// certificate fingerprint Play reports describe the artifact Play generated
+// from the AAB, so they travel with the publication as Play's evidence next to
+// the built AAB's own digest.
+function internalSharingPublication({playTrack, storeStatus, internalSharing}) {
   if (playTrack !== "internal-app-sharing") {
     if (internalSharing) throw new Error(`Internal App Sharing evidence does not belong to the ${playTrack} track`)
-    return "https://play.google.com/console/"
+    return {url: "https://play.google.com/console/"}
   }
-  if (storeStatus === "built") return "https://play.google.com/console/"
-  if (internalSharing?.sha256 !== sha256File(aab)) {
-    throw new Error("Internal App Sharing evidence does not match the built AAB")
+  if (storeStatus === "built") return {url: "https://play.google.com/console/"}
+  if (!/^https:\/\//.test(internalSharing?.downloadUrl || "")) {
+    throw new Error("Internal App Sharing evidence has no HTTPS download URL")
   }
-  return internalSharing.downloadUrl
+  return {
+    url: internalSharing.downloadUrl,
+    playArtifact: {
+      sha256: typeof internalSharing.sha256 === "string" ? internalSharing.sha256 : "",
+      certificateFingerprint:
+        typeof internalSharing.certificateFingerprint === "string" ? internalSharing.certificateFingerprint : "",
+    },
+  }
 }
 
 export function createAndroidRecord({
@@ -75,18 +84,22 @@ export function createAndroidRecord({
 }) {
   validatePlan(plan)
   if (!playTrack) throw new Error("Google Play track is required")
+  const {url, playArtifact} = internalSharingPublication({playTrack, storeStatus, internalSharing})
   return {
     schemaVersion: 1,
     releaseSetId: plan.releaseSetId,
     publications: {
       mentraos: {
-        "google-play": publication({
-          status: storeStatus,
-          coordinate: `com.mentra.mentra:${plan.native.buildNumber}:${playTrack}`,
-          url: internalSharingUrl({playTrack, storeStatus, internalSharing, aab}),
-          provenanceUrl,
-          file: aab,
-        }),
+        "google-play": {
+          ...publication({
+            status: storeStatus,
+            coordinate: `com.mentra.mentra:${plan.native.buildNumber}:${playTrack}`,
+            url,
+            provenanceUrl,
+            file: aab,
+          }),
+          ...(playArtifact ? {playArtifact} : {}),
+        },
       },
     },
     artifacts: [
