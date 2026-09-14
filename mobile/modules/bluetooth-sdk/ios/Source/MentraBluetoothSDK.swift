@@ -722,7 +722,7 @@ public final class MentraBluetoothSDK {
                     DeviceStore.shared.set(ObservableStore.bluetoothCategory, "button_photo_iso_cap", isoCap)
                 }
                 if let compress = settings.compress {
-                    DeviceStore.shared.set(ObservableStore.bluetoothCategory, "button_photo_compress", compress)
+                    DeviceStore.shared.set(ObservableStore.bluetoothCategory, "button_photo_compress", compress.rawValue)
                 }
                 if let sound = settings.sound {
                     DeviceStore.shared.set(ObservableStore.bluetoothCategory, "button_photo_sound", sound)

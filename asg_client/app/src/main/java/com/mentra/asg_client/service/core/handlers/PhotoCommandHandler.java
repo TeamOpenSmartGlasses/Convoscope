@@ -2,6 +2,7 @@ package com.mentra.asg_client.service.core.handlers;
 
 import android.content.Context;
 import android.util.Log;
+import com.mentra.asg_client.io.media.core.PhotoCompression;
 import com.mentra.asg_client.AsgConstants;
 import com.mentra.asg_client.camera.model.PhotoCaptureSettings;
 import com.mentra.asg_client.camera.policy.PhotoMode;
@@ -641,8 +642,9 @@ public class PhotoCommandHandler extends BaseMediaCommandHandler {
     }
 
     private static String resolvePhotoCompress(JSONObject data, AsgSettings stored) {
-        if (data != null && data.has("compress") && !data.isNull("compress")) {
-            return data.optString("compress", "none");
+        if (data != null && data.has("compress")) {
+            PhotoCompression.fromValue(data.opt("compress"));
+            return (String) data.opt("compress");
         }
         // SDK take_photo requests that omit compress should use the SDK default (none), not
         // a stored button scan preset — button presets are for hardware-button captures only.

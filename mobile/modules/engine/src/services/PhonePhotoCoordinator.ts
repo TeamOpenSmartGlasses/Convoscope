@@ -18,6 +18,7 @@
  * etc.) instead of waiting 30s for cloud's timeout.
  */
 
+import {parsePhotoCompression, type PhotoCompression} from "@mentra/cloud-protocol/photo-compression"
 import BluetoothSdk from "@mentra/bluetooth-sdk/internal"
 import type {PhotoSize, PhotoTransferMethod} from "@mentra/bluetooth-sdk/internal"
 import {cloudClientService} from "./CloudClientService"
@@ -51,7 +52,7 @@ export interface PhotoOpts {
   mode?: "photo" | "text"
   /** Select direct-only, phone-relayed BLE, or the default Wi-Fi/BLE fallback policy. */
   transferMethod?: PhotoTransferMethod
-  compress?: "none" | "low" | "medium" | "high"
+  compress?: PhotoCompression
   sound?: boolean
   saveToGallery?: boolean
   exposureTimeNs?: number
@@ -131,10 +132,6 @@ function mintBleRequestId(): string {
   return bleRequestCounter.toString(16).padStart(4, "0")
 }
 
-function toNativeCompression(compress: PhotoOpts["compress"]): "none" | "low" | "medium" | "high" {
-  return compress ?? "none"
-}
-
 export class PhonePhotoCoordinator {
   // Cloud requestId → in-flight slot. The gated photo_response listener
   // (DeviceEventRouter) resolves short BLE ids via bleIdToCloud before calling
@@ -157,6 +154,7 @@ export class PhonePhotoCoordinator {
   }
 
   async takePhoto(packageName: string, opts: PhotoOpts): Promise<PhotoTaken> {
+    const compress = parsePhotoCompression(opts.compress)
     const transferMethod = parsePhotoTransferMethod(opts.transferMethod)
 
     // Pre-check: if glasses aren't even connected, the BLE photo command
@@ -174,8 +172,8 @@ export class PhonePhotoCoordinator {
       throw new PhotoError("GLASSES_NOT_CONNECTED", "Glasses are not connected", "command", "ble")
     }
 
-    // Text-mode sensor resolution is owned by ASG constants; keep cloud metadata on a stable
-    // high-capacity tier and let the glasses ignore the public size when mode=text.
+    // Text-mode sensor resolution is owned by ASG constants; the glasses ignore the public
+    // size when mode=text.
     const captureSize = opts.size ?? "medium"
 
     // 1) Presign via the cloud-v2 managed-photo service. Local miniapps use
@@ -188,9 +186,7 @@ export class PhonePhotoCoordinator {
     const flowStarted = performance.now()
     try {
       const presignStarted = performance.now()
-      const r = await cloudClientService.startManagedPhoto({
-        size: opts.mode === "text" ? "max" : captureSize,
-      })
+      const r = await cloudClientService.startManagedPhoto()
       const presignMs = Math.round(performance.now() - presignStarted)
       if (typeof __DEV__ !== "undefined" && __DEV__) {
         console.debug(
@@ -262,7 +258,7 @@ export class PhonePhotoCoordinator {
         webhookUrl: uploadUrl,
         authToken: null,
         ...(isLoopbackUpload ? {transferMethod: "ble" as const} : transferMethod ? {transferMethod} : {}),
-        compress: toNativeCompression(opts.compress),
+        compress,
         save: opts.saveToGallery ?? false,
         sound: opts.sound ?? true,
         exposureTimeNs: opts.exposureTimeNs ?? null,
