@@ -71,6 +71,8 @@ test("production promotion is resumable and keeps irreversible actions behind se
   assert.match(prepare, /--family-assets promotion-input\/family\/assets\.json/)
   assert.match(prepare, /--current-family-assets promotion-input\/family\/current-assets\.json/)
   assert.match(prepare, /--marker-directory promotion-output\/family-build-numbers/)
+  assert.match(prepare, /--family-markers-dir promotion-input\/family\/markers/)
+  assert.match(prepare, /--current-family-markers-dir promotion-input\/family\/current-markers/)
   assert.match(prepare, /Record the allocated build numbers in the family containers/)
   assert.doesNotMatch(prepare, /group: production-release-prepare-\$\{\{/)
   assert.match(prepare, /--beta "\$\{\{ inputs\.beta_identity \}\}"/)
@@ -326,6 +328,7 @@ test("coordinated docs publish only after finalization to the matching channel",
   // Store build numbers come from the family formula with the run number as
   // the sequence, for the app plan and the ASG client alike.
   assert.match(plan, /allocate-family-build-sequence\.mjs allocate/)
+  assert.match(plan, /--owner "coordinated-run:\$\{GITHUB_RUN_ID\}"/)
   assert.match(plan, /--native-build-number "\$\{\{ steps\.family-number\.outputs\.build_number \}\}"/)
   assert.match(plan, /Record the family build number in the release container/)
   assert.doesNotMatch(coordinator, /310000000|--native-build-sequence/)
@@ -662,6 +665,7 @@ test("the production example is keyed on the promoted beta and never promotes a 
   // container, recorded there before any upload; stores are not consulted.
   assert.match(load, /--family-assets example-input\/family\/assets\.json/)
   assert.match(load, /--marker-directory example-output\/family-build-number/)
+  assert.match(load, /--family-markers-dir example-input\/family\/markers/)
   assert.match(load, /Record the allocated build number in the family container/)
   assert.doesNotMatch(load, /--apple-inventory|--google-inventory|google_play_inventory/)
   assert.match(load, /production-packages\.mjs ensure-container/)

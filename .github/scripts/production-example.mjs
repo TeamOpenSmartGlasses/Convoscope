@@ -16,7 +16,11 @@ import {fileURLToPath} from "node:url"
 
 import {validateSelectedBeta} from "./prepare-production-promotion.mjs"
 import {buildNumberBelongsTo, createReleasePlan, loadReleaseFamily, serializeReleaseRecord} from "./release-family.mjs"
-import {allocateFamilyBuildNumber, familyBuildNumberMarker} from "./allocate-family-build-sequence.mjs"
+import {
+  allocateFamilyBuildNumber,
+  familyBuildNumberMarker,
+  readMarkersDirectory,
+} from "./allocate-family-build-sequence.mjs"
 
 export const EXAMPLE_BUNDLE_ID = "com.mentra.bluetoothsdkexample"
 // iOS is distributed like a public beta: an external TestFlight group with a
@@ -42,14 +46,23 @@ function requireInteger(value, label) {
 // The example takes the next family sequence from the family's build
 // container, like the Mentra App's candidate, so every production build of the
 // family is a distinct, ordered number regardless of which app it is.
-export function allocateExampleBuildNumber({betaPlan, familyAssets}) {
+export function exampleBuildNumberOwner(betaPlan) {
+  return `example:mentra-${betaPlan.familyBaseVersion}`
+}
+
+export function allocateExampleBuildNumber({betaPlan, familyAssets, familyMarkers = []}) {
   if (!Number.isSafeInteger(betaPlan?.native?.buildNumber) || betaPlan.native.buildNumber < 1) {
     throw new Error("Selected beta has no native build number")
   }
   if (!buildNumberBelongsTo(betaPlan.familyBaseVersion, betaPlan.native.buildNumber)) {
     throw new Error(`Selected beta build number ${betaPlan.native.buildNumber} is outside the family window`)
   }
-  const {buildNumber} = allocateFamilyBuildNumber({assets: familyAssets, baseVersion: betaPlan.familyBaseVersion})
+  const {buildNumber} = allocateFamilyBuildNumber({
+    assets: familyAssets,
+    baseVersion: betaPlan.familyBaseVersion,
+    owner: exampleBuildNumberOwner(betaPlan),
+    markers: familyMarkers,
+  })
   if (buildNumber <= betaPlan.native.buildNumber) {
     throw new Error(`Family container for ${betaPlan.familyBaseVersion} does not record the selected beta build`)
   }
@@ -58,7 +71,11 @@ export function allocateExampleBuildNumber({betaPlan, familyAssets}) {
 }
 
 export function exampleBuildNumberMarker(plan) {
-  return familyBuildNumberMarker({baseVersion: plan.familyBaseVersion, buildNumber: plan.native.buildNumber})
+  return familyBuildNumberMarker({
+    baseVersion: plan.familyBaseVersion,
+    buildNumber: plan.native.buildNumber,
+    owner: exampleBuildNumberOwner(plan),
+  })
 }
 
 export function createProductionExamplePlan({
@@ -168,7 +185,11 @@ function main() {
         throw new Error("The frozen production example plan no longer matches the selected beta source")
       }
     } else {
-      const buildNumber = allocateExampleBuildNumber({betaPlan, familyAssets: readJson(args["family-assets"])})
+      const buildNumber = allocateExampleBuildNumber({
+        betaPlan,
+        familyAssets: readJson(args["family-assets"]),
+        familyMarkers: readMarkersDirectory(args["family-markers-dir"]),
+      })
       plan = createProductionExamplePlan({
         family,
         betaPlan,

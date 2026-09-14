@@ -145,6 +145,7 @@ jobs:
           node .github/scripts/allocate-family-build-sequence.mjs allocate \
             --assets family-container-assets.json \
             --base-version "$base_version" \
+            --owner "coordinated-run:${GITHUB_RUN_ID}" \
             --output family-build-number.json
           echo "build_number=$(jq -er .buildNumber family-build-number.json)" >> "$GITHUB_OUTPUT"
 
@@ -266,6 +267,7 @@ jobs:
           node .github/scripts/allocate-family-build-sequence.mjs marker \
             --base-version "$base_version" \
             --build-number "$build_number" \
+            --owner "coordinated-run:${GITHUB_RUN_ID}" \
             --output-dir family-build-number
           name="mentra-build-number-$build_number.json"
           node .github/scripts/publish-immutable-release-asset.mjs \

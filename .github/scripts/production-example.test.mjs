@@ -39,12 +39,13 @@ const marker = (sequence) => ({name: `mentra-build-number-${n(sequence)}.json`})
 test("allocates the example's build number as the family's next sequence", () => {
   assert.equal(allocateExampleBuildNumber({betaPlan, familyAssets: [marker(212)]}), n(213))
   assert.equal(allocateExampleBuildNumber({betaPlan, familyAssets: [marker(212), marker(300)]}), n(301))
+  // ASG client pairs live in their own release and never count here.
   assert.equal(
     allocateExampleBuildNumber({
       betaPlan,
       familyAssets: [marker(212), {name: `mentra-live-asg-${n(400)}-${"a".repeat(64)}.apk`}],
     }),
-    n(401),
+    n(213),
   )
   assert.throws(() => allocateExampleBuildNumber({betaPlan, familyAssets: []}), /does not record the selected beta/)
   assert.throws(
@@ -56,6 +57,23 @@ test("allocates the example's build number as the family's next sequence", () =>
     /outside the family window/,
   )
   assert.throws(() => allocateExampleBuildNumber({betaPlan, familyAssets: [marker(2999)]}), /exhausted/)
+  // A retry finds the example's own reservation.
+  const owned = {
+    schemaVersion: 1,
+    kind: "mentra-family-build-number",
+    familyBaseVersion: family.familyBaseVersion,
+    buildNumber: n(213),
+    sequence: 213,
+    owner: `example:mentra-${family.familyBaseVersion}`,
+  }
+  assert.equal(
+    allocateExampleBuildNumber({
+      betaPlan,
+      familyAssets: [marker(212), marker(213), marker(214)],
+      familyMarkers: [owned],
+    }),
+    n(213),
+  )
 })
 
 test("freezes a production example plan keyed on the promoted beta with the allocated build number", () => {

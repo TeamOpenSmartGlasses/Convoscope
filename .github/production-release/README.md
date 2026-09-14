@@ -147,10 +147,11 @@ sequence`, with major between 2 and 20 and minor and patch at most 99. Design:
 
 Sequences restart at 1 for every family. Each coordinated run allocates one
 sequence from the family's build container (`mentra-builds-vX.Y.Z`): the next
-free number above every `mentra-build-number-<code>.json` marker and every ASG
-client pair recorded there, and records its own marker before building. The
-ASG client reuses its published code when its sources are unchanged and takes
-the run's number when rebuilt. Production candidates, the production Bluetooth
+free number above every `mentra-build-number-<code>.json` marker recorded
+there, and records its own marker, which names its owner, before building; a
+retry finds its own marker and reuses the number. The ASG client reuses its
+published code when its sources are unchanged and takes exactly the run's
+number when rebuilt. Production candidates, the production Bluetooth
 example and a compatibility-lab rebuild allocate the same way, from their
 family's container. Release sequences stay below 3,000; the band above is
 reserved for local and pull-request builds.

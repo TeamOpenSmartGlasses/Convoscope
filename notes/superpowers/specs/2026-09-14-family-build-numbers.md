@@ -36,14 +36,19 @@ buildNumber = MAJOR × 100,000,000 + MINOR × 1,000,000 + PATCH × 10,000 + sequ
 
 Every new family prefix starts again at 1. A coordinated run (dev or beta)
 allocates **one sequence per run** from the family's build container
-(`mentra-builds-vX.Y.Z`): the next free number above every number already
-recorded there, whether recorded by the app (`mentra-build-number-<code>.json`
-marker assets) or by the ASG client (`mentra-live-asg-<code>-<fingerprint>.*`
-assets). The marker is published right after the container exists and before
-any build starts, so a run that fails halfway never gives its number away, and
-a rerun reuses the number from its restored plan. Two runs of the same family
-allocating concurrently collide on the marker name and the second one fails
-closed.
+(`mentra-builds-vX.Y.Z`): the next free number above every
+`mentra-build-number-<code>.json` marker recorded there. The marker names its
+owner (`coordinated-run:<run id>`, `promotion:<promotion id>:candidate`,
+`promotion:<promotion id>:compatibility-lab`, `example:<release set>`), and is
+published right after the container exists and before any build starts:
+
+- two owners choosing the same number produce different bytes, so the
+  immutable publisher refuses the second one and that run fails closed;
+- the same owner retrying republishes identical bytes;
+- an owner that finds its own marker among the ones above its floor reuses that
+  number instead of allocating again, so a partially published promotion
+  attempt or example release resumes with the numbers it already reserved;
+- a coordinated rerun keeps the number from its restored plan.
 
 Release identities (`3.1.1-beta.235`) keep the coordinated run number: that is
 only a name, not a build number.
@@ -55,8 +60,9 @@ base version) is looked up in the container:
 
 - fingerprint already published: the run reuses that APK and its recorded code,
   no build, no new number;
-- new fingerprint: the run builds and stamps the APK with the run's sequence,
-  the same number the app gets in that run;
+- new fingerprint: the run builds and stamps the APK with exactly the number
+  the run reserved, the same number the app gets in that run; a different
+  build already holding that code in the ASG release is a hard stop;
 - rerun: same commit, same fingerprint, so the published pair is reused; an
   interrupted pair is deleted and rebuilt.
 
@@ -77,7 +83,7 @@ rebuild of the current public app takes the next sequence of that app's own
 family, from that family's container. Google Play production must still be
 exceeded, which the family window guarantees over the legacy timestamp codes.
 
-## Non-release builds (local and PR CI) — after the 3.1.1 release
+## Non-release builds (local and PR CI)
 
 Local builds and PR CI builds of the app and the ASG client pin
 
@@ -98,8 +104,13 @@ sequence = 3,000 + (minutes since 2025-01-01 of the HEAD committer time) mod 7,0
 - Uniqueness beyond that is not a goal: Android accepts equal codes on install,
   and crash reports carry the commit hash.
 
-The ASG PR workflow keeps reusing the coordinated ASG client when the client is
-unchanged in the PR.
+The pull-request ASG workflow (`mentra-asg-client-build.yml`, dev's lane, ported
+to staging with the 3.1.1 bump) fingerprints the PR's ASG sources exactly like
+the coordinated lane and reuses the coordinated APK when one matches; otherwise
+it builds the PR's own ASG client at the commit-derived number and publishes a
+per-PR OTA manifest (`ota-pr-<number>-<sha>.json` on the `pr-builds` release)
+that the PR's app build pins, so a PR APK updates glasses to the PR's ASG
+client. The pull-request app builds pin the same commit-derived number.
 
 ## Where it lives
 
@@ -109,7 +120,7 @@ unchanged in the PR.
   the family container (coordinated plan job).
 - `.github/scripts/allocate-asg-version.mjs`: ASG reuse or allocation at the
   run's number.
-- `.github/scripts/store-build-numbers.mjs`: production and example allocation
-  from the store inventories.
 - `mobile/scripts/build-number.mjs`, `asg_client/app/build.gradle`: pinned by
-  CI; the non-release band for local builds (follow-up).
+  CI for releases; the commit-derived non-release band otherwise.
+- `.github/scripts/select-pr-asg.mjs`: pull-request ASG reuse or build at the
+  commit-derived number.

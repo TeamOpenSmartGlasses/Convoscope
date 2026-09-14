@@ -66,10 +66,14 @@ function inventory(bundleId, current, appleMax, googleMax, extra = {}) {
 const marker = (sequence, version = family.familyBaseVersion) => ({
   name: `mentra-build-number-${familyBuildNumber(version, sequence)}.json`,
 })
-const asgPair = (sequence, version = family.familyBaseVersion) => [
-  {name: `mentra-live-asg-${familyBuildNumber(version, sequence)}-${"a".repeat(64)}.apk`},
-  {name: `mentra-live-asg-${familyBuildNumber(version, sequence)}-${"a".repeat(64)}.json`},
-]
+const ownedMarker = (sequence, owner, version = family.familyBaseVersion) => ({
+  schemaVersion: 1,
+  kind: "mentra-family-build-number",
+  familyBaseVersion: version,
+  buildNumber: familyBuildNumber(version, sequence),
+  sequence,
+  owner,
+})
 
 function prepare(overrides = {}) {
   return prepareProductionPromotion({
@@ -80,7 +84,7 @@ function prepare(overrides = {}) {
     betaManifestSha256: "b".repeat(64),
     previousManifest,
     mentraInventory: inventory("com.mentra.mentra", {marketingVersion: "3.0.0", buildNumber: 300000100}, n(60), n(59)),
-    familyAssets: [marker(57), ...asgPair(57)],
+    familyAssets: [marker(57)],
     currentFamilyAssets: [marker(100, "3.0.0")],
     attempt: 1,
     actor: "release-owner",
@@ -100,10 +104,15 @@ test("freezes selected source and allocates the next family sequences", () => {
   assert.equal(productionPlan.native.buildNumber, n(58))
   assert.equal(record.coordinates.candidates.mentraApp.ios.buildNumber, n(58))
   assert.deepEqual(
-    markers.map(({containerBaseVersion, marker: m}) => [containerBaseVersion, m.buildNumber, m.sequence]),
+    markers.map(({containerBaseVersion, marker: m}) => [containerBaseVersion, m.buildNumber, m.sequence, m.owner]),
     [
-      [family.familyBaseVersion, n(58), 58],
-      ["3.0.0", familyBuildNumber("3.0.0", 101), 101],
+      [family.familyBaseVersion, n(58), 58, `promotion:mentra-${family.familyBaseVersion}-attempt-1:candidate`],
+      [
+        "3.0.0",
+        familyBuildNumber("3.0.0", 101),
+        101,
+        `promotion:mentra-${family.familyBaseVersion}-attempt-1:compatibility-lab`,
+      ],
     ],
   )
   assert.deepEqual(Object.keys(record.coordinates.candidates), ["mentraApp"])
@@ -139,9 +148,31 @@ test("allocates from the family container only, never from the stores", () => {
   const {productionPlan} = prepare({
     previousManifest: null,
     mentraInventory: inventory("com.mentra.mentra", current, 900000001, familyBuildNumber("9.9.9", 217)),
-    familyAssets: [marker(57), marker(60), ...asgPair(61), marker(2, "9.9.9")],
+    familyAssets: [marker(57), marker(60), marker(61), marker(2, "9.9.9")],
   })
   assert.equal(productionPlan.native.buildNumber, n(62))
+
+  // A retry of the same attempt finds the markers it already reserved and
+  // freezes the same plan, even though the containers have moved on.
+  const owner = `promotion:mentra-${family.familyBaseVersion}-attempt-1`
+  const retried = prepare({
+    familyAssets: [marker(57), marker(58), marker(59)],
+    familyMarkers: [ownedMarker(58, `${owner}:candidate`), ownedMarker(59, "coordinated-run:9")],
+    currentFamilyAssets: [marker(100, "3.0.0"), marker(101, "3.0.0"), marker(102, "3.0.0")],
+    currentFamilyMarkers: [ownedMarker(101, `${owner}:compatibility-lab`, "3.0.0")],
+  })
+  assert.equal(retried.productionPlan.native.buildNumber, n(58))
+  assert.equal(retried.record.coordinates.compatibilityLab.ios.buildNumber, familyBuildNumber("3.0.0", 101))
+  // Another attempt's markers are not this attempt's reservations.
+  const later = prepare({
+    attempt: 2,
+    familyAssets: [marker(57), marker(58)],
+    familyMarkers: [ownedMarker(58, `${owner}:candidate`)],
+    currentFamilyAssets: [marker(100, "3.0.0"), marker(101, "3.0.0")],
+    currentFamilyMarkers: [ownedMarker(101, `${owner}:compatibility-lab`, "3.0.0")],
+  })
+  assert.equal(later.productionPlan.native.buildNumber, n(59))
+  assert.equal(later.record.coordinates.compatibilityLab.ios.buildNumber, familyBuildNumber("3.0.0", 102))
 
   // A container that does not record the selected beta is refused: the beta
   // was not cut by the coordinated pipeline that records numbers.

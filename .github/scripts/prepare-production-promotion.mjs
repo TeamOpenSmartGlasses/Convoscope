@@ -12,7 +12,11 @@ import {
   releaseRecordSha256,
   serializeReleaseRecord,
 } from "./release-family.mjs"
-import {allocateFamilyBuildNumber, familyBuildNumberMarker} from "./allocate-family-build-sequence.mjs"
+import {
+  allocateFamilyBuildNumber,
+  familyBuildNumberMarker,
+  readMarkersDirectory,
+} from "./allocate-family-build-sequence.mjs"
 
 const COMMIT_PATTERN = /^[0-9a-f]{40}$/
 
@@ -108,7 +112,9 @@ export function prepareProductionPromotion({
   previousManifest,
   mentraInventory,
   familyAssets,
+  familyMarkers = [],
   currentFamilyAssets = null,
+  currentFamilyMarkers = [],
   attempt,
   actor,
   createdAt,
@@ -125,7 +131,13 @@ export function prepareProductionPromotion({
   // The candidate takes the next family sequence, exactly like a coordinated
   // run: the next free number above everything the family's build container
   // already records (earlier runs' markers and ASG client pairs).
-  const candidate = allocateFamilyBuildNumber({assets: familyAssets, baseVersion: family.familyBaseVersion})
+  const promotionId = `mentra-${family.familyBaseVersion}-attempt-${attempt}`
+  const candidate = allocateFamilyBuildNumber({
+    assets: familyAssets,
+    baseVersion: family.familyBaseVersion,
+    owner: `promotion:${promotionId}:candidate`,
+    markers: familyMarkers,
+  })
   const mentraBuildNumber = candidate.buildNumber
   if (mentraBuildNumber <= betaPlan.native.buildNumber) {
     throw new Error(
@@ -143,6 +155,8 @@ export function prepareProductionPromotion({
     compatibilityLab = allocateFamilyBuildNumber({
       assets: currentFamilyAssets,
       baseVersion: currentMentraApp.ios.marketingVersion,
+      owner: `promotion:${promotionId}:compatibility-lab`,
+      markers: currentFamilyMarkers,
     })
     if (
       compatibilityLab.buildNumber <= Math.max(currentMentraApp.ios.buildNumber, currentMentraApp.android.buildNumber)
@@ -215,7 +229,11 @@ export function prepareProductionPromotion({
   const markers = [
     {
       containerBaseVersion: family.familyBaseVersion,
-      marker: familyBuildNumberMarker({baseVersion: family.familyBaseVersion, buildNumber: mentraBuildNumber}),
+      marker: familyBuildNumberMarker({
+        baseVersion: family.familyBaseVersion,
+        buildNumber: mentraBuildNumber,
+        owner: candidate.owner,
+      }),
     },
     ...(compatibilityLab
       ? [
@@ -224,6 +242,7 @@ export function prepareProductionPromotion({
             marker: familyBuildNumberMarker({
               baseVersion: currentMentraApp.ios.marketingVersion,
               buildNumber: compatibilityLab.buildNumber,
+              owner: compatibilityLab.owner,
             }),
           },
         ]
@@ -264,7 +283,9 @@ function main() {
     previousManifest,
     mentraInventory: readJson(args["mentra-inventory"]),
     familyAssets: readJson(args["family-assets"]),
+    familyMarkers: readMarkersDirectory(args["family-markers-dir"]),
     currentFamilyAssets: args["current-family-assets"] ? readJson(args["current-family-assets"]) : null,
+    currentFamilyMarkers: readMarkersDirectory(args["current-family-markers-dir"]),
     attempt: Number(args.attempt),
     actor: args.actor,
     createdAt: args["created-at"],

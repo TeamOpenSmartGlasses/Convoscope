@@ -153,6 +153,17 @@ jobs:
           release_id=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/$BETA_TAG" --jq .id)
           gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/releases/$release_id/assets?per_page=100" \
             | jq 'add // []' > example-input/family/assets.json
+          # Markers above the beta are downloaded so a retry finds the number
+          # this example release already reserved.
+          mkdir -p example-input/family/markers
+          floor=$(jq -er .native.buildNumber example-input/beta/release-plan.json)
+          while IFS=$'\t' read -r asset_id name; do
+            [[ -z "$asset_id" ]] && continue
+            gh api -H "Accept: application/octet-stream" "repos/${GITHUB_REPOSITORY}/releases/assets/$asset_id" \
+              > "example-input/family/markers/$name"
+          done < <(jq -r --argjson floor "$floor" \
+            '.[] | select(.name | test("^mentra-build-number-[0-9]+\\.json$")) | select((.name | capture("mentra-build-number-(?<code>[0-9]+)") | .code | tonumber) > $floor) | [.id, .name] | @tsv' \
+            example-input/family/assets.json)
           echo "release_id=$release_id" >> "$GITHUB_OUTPUT"
       # The allocated build number must survive reruns: a retry after a partial
       # upload has to reuse the plan the first run froze, not resample the
@@ -202,6 +213,7 @@ jobs:
             --beta-manifest "${{ steps.beta.outputs.manifest_path }}" \
             --beta-manifest-url "${{ steps.beta.outputs.manifest_url }}" \
             --family-assets example-input/family/assets.json \
+            --family-markers-dir example-input/family/markers \
             --marker-directory example-output/family-build-number \
             "${existing[@]}" \
             --output release-intent/release-plan.json \
