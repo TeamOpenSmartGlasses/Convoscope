@@ -491,7 +491,8 @@ It first checks all three targets without changing anything: every npm
 member is published and its `latest` is not already newer, the Sonatype
 deployment is validated, and the staged SwiftPM commit is the one recorded in
 the archived export. Only then does it move npm `latest` to `X.Y.Z` for every
-member and retire the candidate dist-tag, request the Sonatype publication and
+member (the candidate dist-tag stays as a record; npm refuses to delete tags
+with the automation token), request the Sonatype publication and
 wait for `PUBLISHED`, and push the SwiftPM tag `X.Y.Z`. Moving a dist-tag
 requires the `NPM_TOKEN` automation secret; trusted-publisher OIDC only covers
 `npm publish`.

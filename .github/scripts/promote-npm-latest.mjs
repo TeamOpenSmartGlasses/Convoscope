@@ -7,6 +7,11 @@
 // human approves the protected release phase, and only then does this script
 // move `latest`. Moving a dist-tag needs a real npm token (NODE_AUTH_TOKEN);
 // trusted-publisher OIDC only covers `npm publish`.
+//
+// The candidate dist-tag stays on the package afterwards: npm refuses to
+// delete a dist-tag with the automation token (E403 on run 34867323573), and
+// the tag is a harmless record that the version went through the candidate
+// phase. Each release uses its own `candidate-X.Y.Z`, so nothing collides.
 import {execFileSync} from "node:child_process"
 import {mkdirSync, readFileSync, writeFileSync} from "node:fs"
 import path from "node:path"
@@ -134,10 +139,6 @@ export function promoteNpmLatest({
         }
         sleep()
       }
-    }
-    if (!dryRun) {
-      const current = parseViewValue(view(name, "dist-tags")) || {}
-      if (current[candidateTag] === version) exec("npm", ["dist-tag", "rm", name, candidateTag])
     }
     publications[name] = {
       npm: {
