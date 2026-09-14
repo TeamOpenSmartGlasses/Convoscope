@@ -1,7 +1,7 @@
 /// <reference types="bun-types" />
 
-import {describe, expect, test} from "bun:test"
-import {getMdnsHostname, pickLanIp, scoreLanIface, type LanIface} from "./lan.js"
+import {afterEach, beforeEach, describe, expect, test} from "bun:test"
+import {getLanIp, getMdnsHostname, pickLanIp, scoreLanIface, type LanIface} from "./lan.js"
 import os from "os"
 
 function iface(partial: Partial<LanIface> & Pick<LanIface, "name" | "address">): LanIface {
@@ -21,7 +21,14 @@ describe("scoreLanIface", () => {
     expect(scoreLanIface(iface({name: "utun0", address: "10.137.68.90", netmask: "255.0.0.0", mac: "00:00:00:00:00:00"}))).toBeLessThan(
       0,
     )
-    expect(scoreLanIface(iface({name: "tailscale0", address: "100.64.1.2"}))).toBeLessThan(0)
+    expect(scoreLanIface(iface({name: "awdl0", address: "10.0.0.1"}))).toBeLessThan(0)
+  })
+
+  test("keeps Tailscale as positive fallback score lower than physical Wi-Fi", () => {
+    const tailscale = scoreLanIface(iface({name: "tailscale0", address: "100.64.1.2"}))
+    const wifi = scoreLanIface(iface({name: "en0", address: "192.168.1.100"}))
+    expect(tailscale).toBeGreaterThan(0)
+    expect(wifi).toBeGreaterThan(tailscale)
   })
 
   test("prefers en0 Wi-Fi over a leftover /8 tunnel-shaped address", () => {
@@ -80,5 +87,52 @@ describe("scoreLanIface Linux predictable names", () => {
     const eth = scoreLanIface(iface({name: "enp0s3", address: "192.168.1.41"}))
     expect(wifi).toBeGreaterThan(50)
     expect(eth).toBeGreaterThan(50)
+  })
+})
+
+describe("getLanIp with mocked os.networkInterfaces", () => {
+  let originalNetworkInterfaces: typeof os.networkInterfaces
+
+  function mockInterfaces(map: NodeJS.Dict<LanIface[] | undefined>) {
+    ;(os as {networkInterfaces: () => typeof map}).networkInterfaces = () => map
+  }
+
+  beforeEach(() => {
+    originalNetworkInterfaces = os.networkInterfaces
+  })
+
+  afterEach(() => {
+    ;(os as {networkInterfaces: typeof originalNetworkInterfaces}).networkInterfaces = originalNetworkInterfaces
+  })
+
+  test("Case 1: Tailscale + Wi-Fi (192.168.x.x) present -> must select Wi-Fi", () => {
+    mockInterfaces({
+      tailscale0: [iface({name: "tailscale0", address: "100.64.1.2", netmask: "255.255.255.255"})],
+      "Wi-Fi": [iface({name: "Wi-Fi", address: "192.168.1.105", netmask: "255.255.255.0"})],
+    })
+    expect(getLanIp()).toBe("192.168.1.105")
+  })
+
+  test("Case 2: WSL (vEthernet) + Ethernet (10.x.x.x) present -> must select Ethernet", () => {
+    mockInterfaces({
+      "vEthernet (WSL)": [iface({name: "vEthernet (WSL)", address: "172.28.96.1", netmask: "255.255.240.0"})],
+      Ethernet: [iface({name: "Ethernet", address: "10.0.0.15", netmask: "255.255.255.0"})],
+    })
+    expect(getLanIp()).toBe("10.0.0.15")
+  })
+
+  test("Case 3: Only Tailscale interface present -> must fallback to Tailscale instead of returning null", () => {
+    mockInterfaces({
+      tailscale0: [iface({name: "tailscale0", address: "100.64.1.2", netmask: "255.255.255.255"})],
+    })
+    expect(getLanIp()).toBe("100.64.1.2")
+  })
+
+  test("Case 4: No non-internal IPv4 -> returns null", () => {
+    mockInterfaces({
+      lo0: [iface({name: "lo0", address: "127.0.0.1", internal: true})],
+      linklocal: [iface({name: "en0", address: "169.254.1.2", internal: false})],
+    })
+    expect(getLanIp()).toBeNull()
   })
 })
