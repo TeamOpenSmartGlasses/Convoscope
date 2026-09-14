@@ -4,6 +4,16 @@ public class AsgConstants {
     /** Maximum wait for Camera2 re-registration before a FOV readiness error. */
     public static final long CAMERA_FOV_READY_TIMEOUT_MS = 20_000L;
 
+    /** BLE command/response delivery margin for the bounded FOV update contract. */
+    public static final long CAMERA_FOV_DELIVERY_MARGIN_MS = 5_000L;
+
+    /** One active restart plus one coalesced pending restart, with BLE delivery margin.
+     * Mirrored by CAMERA_FOV_REQUEST_TIMEOUT_MS / cameraFovRequestTimeoutMs in the
+     * Android/iOS MentraBluetoothSdk facades; keep the three contracts in sync.
+     */
+    public static final long CAMERA_FOV_REQUEST_TIMEOUT_MS =
+            2 * CAMERA_FOV_READY_TIMEOUT_MS + CAMERA_FOV_DELIVERY_MARGIN_MS;
+
     /** Check registration without blocking the main lifecycle thread. */
     public static final long CAMERA_FOV_READY_POLL_MS = 250L;
 
@@ -501,15 +511,15 @@ public class AsgConstants {
     public static final String BLE_PHOTO_CODEC = "JPEG_FAST";
 
     /**
-     * BLE JPEG quality when compression is none or omitted (still lossy JPEG).
+     * Delivered JPEG quality when compression is none or omitted (still lossy JPEG).
      */
-    public static final int BLE_PHOTO_JPEG_QUALITY_NONE = 95;
-    /** BLE JPEG quality for low compression. */
-    public static final int BLE_PHOTO_JPEG_QUALITY_LOW = 88;
-    /** BLE JPEG quality for medium compression. */
-    public static final int BLE_PHOTO_JPEG_QUALITY_MEDIUM = 78;
-    /** BLE JPEG quality for high compression. */
-    public static final int BLE_PHOTO_JPEG_QUALITY_HIGH = 60;
+    public static final int PHOTO_JPEG_QUALITY_NONE = 95;
+    /** Delivered JPEG quality for low compression. */
+    public static final int PHOTO_JPEG_QUALITY_LOW = 88;
+    /** Delivered JPEG quality for medium compression. */
+    public static final int PHOTO_JPEG_QUALITY_MEDIUM = 78;
+    /** Delivered JPEG quality for high compression. */
+    public static final int PHOTO_JPEG_QUALITY_HIGH = 60;
 
     /**
      * Log UART file-transfer send progress every N packets. {@code 0} = off (start/end/errors

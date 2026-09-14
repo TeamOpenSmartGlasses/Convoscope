@@ -21,8 +21,6 @@ import com.mentra.asg_client.service.system.core.SystemControllerFactory;
 import com.mentra.asg_client.settings.AsgSettings;
 import com.mentra.asg_client.settings.VideoSettings;
 import java.util.Set;
-import java.util.ArrayDeque;
-import java.util.Deque;
 import org.json.JSONObject;
 
 /**
@@ -46,7 +44,7 @@ public class SettingsCommandHandler implements ICommandHandler {
     private int cameraFovOverrideValue;
     private int cameraFovOverrideRoi;
     private Runnable cameraFovOverrideExpiry;
-    private final Deque<PendingFovCommand> pendingFovCommands = new ArrayDeque<>();
+    private PendingFovCommand mPendingFovCommand;
     private boolean waitingForFovReady;
     private boolean cameraTuningPending;
 
@@ -99,7 +97,14 @@ public class SettingsCommandHandler implements ICommandHandler {
                 mainHandler.post(() -> handleCommand(commandType, data));
                 return true;
             }
-            pendingFovCommands.addLast(new PendingFovCommand(commandType, data));
+            // One pending slot bounds latency to the active restart plus our own restart.
+            // Set/override/release share it: a superseded command must never mutate hardware.
+            if (mPendingFovCommand != null) {
+              sendSettingsError(getRequestId(mPendingFovCommand.data),
+                  fovSetting(mPendingFovCommand.type), "fov_superseded",
+                  "Replaced by a newer pending FOV command.");
+            }
+            mPendingFovCommand = new PendingFovCommand(commandType, data);
             drainFovCommands();
             return true;
         }
@@ -133,9 +138,14 @@ public class SettingsCommandHandler implements ICommandHandler {
         }
     }
 
+    private static String fovSetting(String commandType) {
+      return "camera_fov_setting".equals(commandType) ? "camera_fov" : "camera_fov_override";
+    }
+
     private void drainFovCommands() {
-        while (!waitingForFovReady && !pendingFovCommands.isEmpty()) {
-            PendingFovCommand command = pendingFovCommands.removeFirst();
+        while (!waitingForFovReady && mPendingFovCommand != null) {
+            PendingFovCommand command = mPendingFovCommand;
+            mPendingFovCommand = null;
             switch (command.type) {
                 case "camera_fov_setting":
                     handleCameraFovSetting(command.data);
@@ -699,7 +709,7 @@ public class SettingsCommandHandler implements ICommandHandler {
                             return;
                         }
                         // Expiry restoration shares the same restart boundary as phone requests.
-                        if (waitingForFovReady || !pendingFovCommands.isEmpty()) {
+                        if (waitingForFovReady || mPendingFovCommand != null) {
                             scheduleCameraFovOverrideExpiry(
                                     leaseId, CAMERA_FOV_RESTORE_RETRY_DELAY_MS);
                             return;
@@ -836,8 +846,8 @@ public class SettingsCommandHandler implements ICommandHandler {
                 // The restart is asynchronous. Cooldown alone does not mean Camera2 has
                 // re-registered the device, and its ID list can briefly contain stale IDs.
                 if (!cameraTuningPending && !CameraRestartCooldown.isActive() && isCameraRegistered()) {
-                    if (!pendingFovCommands.isEmpty()) {
-                        PendingFovCommand next = pendingFovCommands.peekFirst();
+                    if (mPendingFovCommand != null) {
+                        PendingFovCommand next = mPendingFovCommand;
                         sendSettingsError(requestId, setting, "fov_superseded",
                                 "FOV update finished, but a queued FOV request is starting: "
                                         + getRequestId(next.data));
@@ -865,11 +875,11 @@ public class SettingsCommandHandler implements ICommandHandler {
                     sendSettingsError(requestId, setting, "camera_unavailable",
                             "Camera did not re-register after the FOV change.");
                     // Do not start another restart against an unrecovered camera provider.
-                    while (!pendingFovCommands.isEmpty()) {
-                        PendingFovCommand pending = pendingFovCommands.removeFirst();
+                    if (mPendingFovCommand != null) {
+                        PendingFovCommand pending = mPendingFovCommand;
+                        mPendingFovCommand = null;
                         sendSettingsError(getRequestId(pending.data),
-                                "camera_fov_setting".equals(pending.type)
-                                        ? "camera_fov" : "camera_fov_override",
+                                fovSetting(pending.type),
                                 "camera_unavailable",
                                 "Queued FOV update canceled because the camera did not recover.");
                     }
