@@ -8,10 +8,16 @@ import {createAndroidRecord, createIosRecord, mergeMobileRecords} from "./coordi
 import {createPrivateDeploymentRecord} from "./coordinated-private-deployment-records.mjs"
 import {cloudRecordForPlan} from "./coordinated-cloud-v2-test-helpers.mjs"
 import {runtimeImageRecordForPlan} from "./coordinated-runtime-image-test-helpers.mjs"
-import {createReleasePlan, finalizeReleaseManifest, loadReleaseFamily} from "./release-family.mjs"
+import {createReleasePlan, familyBuildNumber, finalizeReleaseManifest, loadReleaseFamily} from "./release-family.mjs"
 
 const family = loadReleaseFamily()
-const input = {family, channel: "dev", sequence: 226, sourceCommit: "a".repeat(40), nativeBuildNumber: 320000226}
+const input = {
+  family,
+  channel: "dev",
+  sequence: 226,
+  sourceCommit: "a".repeat(40),
+  nativeBuildNumber: familyBuildNumber(family.familyBaseVersion, 226),
+}
 const provenanceUrl = "https://github.com/Mentra-Community/MentraOS/actions/runs/123"
 
 test("dev can finalize GitHub Android artifacts without a Google Play publication", (t) => {
@@ -156,8 +162,13 @@ test("the mobile workflow gates only Play operations, preserving Android artifac
     const block = workflow.split(`      - name: ${name}\n`)[1].split("\n      - ")[0]
     assert.doesNotMatch(block, /if: .*upload_google_play/)
   }
+  // Production candidates land on the production track as a draft (see the
+  // family build numbers spec, "Google Play track floors"); submission verifies
+  // that draft instead of promoting from a testing track.
   const production = readFileSync(new URL("../workflows/production-release-mobile.yml", import.meta.url), "utf8")
-  assert.match(production, /play_track: internal/)
+  assert.match(production, /play_track: production/)
+  assert.match(production, /play_release_status: draft/)
   const submission = readFileSync(new URL("../workflows/production-release-store-submit.yml", import.meta.url), "utf8")
-  assert.match(submission, /GOOGLE_PLAY_SOURCE_TRACK=internal/)
+  assert.match(submission, /--required-state submitted/)
+  assert.doesNotMatch(submission, /GOOGLE_PLAY_SOURCE_TRACK/)
 })
