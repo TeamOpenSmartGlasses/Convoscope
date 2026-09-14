@@ -9,6 +9,7 @@
  * management (connect/disconnect/ping).
  */
 
+import {parsePhotoCompression} from "@mentra/cloud-protocol/photo-compression"
 import {acquireGlassesHotspot} from "./GlassesHotspotLease"
 import {AppState, Linking} from "react-native"
 import Share from "react-native-share"
@@ -3415,7 +3416,7 @@ class LocalMiniappRuntime {
         size: payload.size as "low" | "medium" | "high" | "max" | "small" | "large" | "full" | undefined,
         mode: payload.mode as "photo" | "text" | undefined,
         transferMethod: payload.transferMethod as "auto" | "direct" | "ble" | undefined,
-        compress: payload.compress as "none" | "low" | "medium" | "high" | undefined,
+        compress: parsePhotoCompression(payload.compress),
         sound: payload.sound as boolean | undefined,
         saveToGallery: payload.saveToGallery as boolean | undefined,
         exposureTimeNs: payload.exposureTimeNs as number | undefined,

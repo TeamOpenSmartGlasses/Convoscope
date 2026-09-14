@@ -1055,7 +1055,7 @@ private fun Map<String, Any?>.toPhotoCaptureDefaults(): PhotoCaptureDefaults =
                 ispAnalogGain = this["ispAnalogGain"] as? String,
                 aeExposureDivisor = (this["aeExposureDivisor"] as? Number)?.toInt(),
                 isoCap = (this["isoCap"] as? Number)?.toInt(),
-                compress = this["compress"] as? String,
+                compress = this["compress"]?.let { PhotoCompression.fromValue(it) },
                 sound = this["sound"] as? Boolean,
                 resetCaptureTuning = this["resetCaptureTuning"] as? Boolean == true,
         )

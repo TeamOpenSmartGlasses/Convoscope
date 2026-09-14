@@ -147,3 +147,15 @@ describe("warmUpCameraParamsForNative", () => {
     expect(payload).not.toHaveProperty("mfnr")
   })
 })
+
+describe("canonical photo compression", () => {
+  it.each(["none", "low", "medium", "high"] as const)("sends %s unchanged", (compress) => {
+    expect(photoRequestParamsForNative({...baseParams, compress}).compress).toBe(compress)
+  })
+  it("defaults omission to none", () => {
+    expect(photoRequestParamsForNative({...baseParams, compress: undefined}).compress).toBe("none")
+  })
+  it.each(["heavy", "", "HIGH", null, 1, false])("rejects invalid compression %p", (compress) => {
+    expect(() => photoRequestParamsForNative({...baseParams, compress} as never)).toThrow("Invalid photo compression")
+  })
+})

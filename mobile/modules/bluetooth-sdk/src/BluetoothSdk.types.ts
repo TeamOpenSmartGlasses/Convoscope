@@ -1,3 +1,6 @@
+import type {PhotoCompression} from "@mentra/cloud-protocol/photo-compression"
+export type {PhotoCompression} from "@mentra/cloud-protocol/photo-compression"
+
 // Bluetooth SDK Event Types
 export type GlassesNotReadyEvent = {
   type: "glasses_not_ready"
@@ -295,7 +298,7 @@ export type PhotoResolvedConfig = {
   requestedSize?: PhotoSize | string
   source?: "sdk" | "button" | string
   transferMethod?: "webhook" | "ble" | "local" | string
-  compression?: PhotoCompression | string
+  compression?: PhotoCompression
   saveToGallery?: boolean
   exposureTimeNs?: number
   iso?: number
@@ -565,8 +568,6 @@ export type PhotoCaptureDefaults = {
   /** When true, clears stored NR/edge/ISP presets on the glasses before applying other fields. */
   resetCaptureTuning?: boolean
 }
-/** `heavy` is the legacy alias for `high`. */
-export type PhotoCompression = "none" | "low" | "medium" | "high" | "heavy"
 
 export type VideoRecordingDefaults = {
   width: number
@@ -671,7 +672,7 @@ export type PhotoRequestParams = {
   transferMethod?: PhotoTransferMethod
   webhookUrl: string | null
   authToken: string | null
-  compress: PhotoCompression
+  compress?: PhotoCompression
   save?: boolean
   sound: boolean
   exposureTimeNs?: number | null

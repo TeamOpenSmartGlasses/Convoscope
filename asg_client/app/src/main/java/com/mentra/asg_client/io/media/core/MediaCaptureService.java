@@ -2740,7 +2740,7 @@ public class MediaCaptureService {
      * @param size Photo size
      * @param enableFlash Whether to enable privacy flash LED
      * @param enableSound Whether to enable shutter sound
-     * @param compress Compression level (none, medium, heavy)
+     * @param compress Compression level (none, low, medium, high)
      * @param exposureTimeNs optional sensor exposure time in nanoseconds for this capture only;
      *     {@code null} = auto
      * @param iso optional sensor sensitivity for manual exposure captures only; {@code null} =
@@ -4943,7 +4943,7 @@ public class MediaCaptureService {
      * @param webhookUrl Webhook URL for upload
      * @param bleImgId BLE image ID for fallback
      * @param save Whether to keep the photo on device
-     * @param compress Compression level (none, medium, heavy)
+     * @param compress Compression level (none, low, medium, high)
      * @param exposureTimeNs optional sensor exposure time in nanoseconds for this capture only;
      *     {@code null} = auto
      * @param iso optional sensor sensitivity for manual exposure captures only; {@code null} =

@@ -9,6 +9,8 @@
  * Mirrors docs/issues/002-cloud-runtime/camera/spec.md.
  */
 import { z } from "zod";
+import { photoCompressionValues } from "./photo-compression";
+export type { PhotoCompression } from "./photo-compression";
 
 // --- Managed photo ----------------------------------------------------------
 
@@ -49,37 +51,15 @@ export function normalizePhotoSizeTier(value: string): PhotoSizeTier {
   }
 }
 
-const photoCompressInputSchema = z.enum(["none", "low", "medium", "high", "heavy"]);
-
-/** Normalize compression aliases to the cloud wire enum. */
-export function normalizePhotoCompress(
-  value: string,
-): "none" | "medium" | "heavy" {
-  switch (value) {
-    case "low":
-    case "medium":
-      return "medium";
-    case "high":
-    case "heavy":
-      return "heavy";
-    case "none":
-      return "none";
-    default:
-      throw new Error(`invalid photo compress: ${value}`);
-  }
-}
-
 export const photoOptionsSchema = z.object({
   size: photoSizeInputSchema
     .optional()
     .transform((value) => (value === undefined ? undefined : normalizePhotoSizeTier(value))),
-  compress: photoCompressInputSchema
-    .optional()
-    .transform((value) => (value === undefined ? undefined : normalizePhotoCompress(value))),
+  compress: z.enum(photoCompressionValues).default("none"),
   saveToGallery: z.boolean().optional(),
   sound: z.boolean().optional(),
 });
-export type PhotoOptions = z.infer<typeof photoOptionsSchema>;
+export type PhotoOptions = z.input<typeof photoOptionsSchema>;
 
 /**
  * The REST response to a photo request. The capture happens out of band (the

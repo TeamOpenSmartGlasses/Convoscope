@@ -5,6 +5,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
 import android.hardware.camera2.CameraManager;
+import com.mentra.asg_client.io.media.core.PhotoCompression;
 import com.mentra.asg_client.camera.lifecycle.CameraOpener;
 import android.util.Log;
 import com.mentra.asg_client.AsgConstants;
@@ -291,7 +292,7 @@ public class SettingsCommandHandler implements ICommandHandler {
             boolean hasAeExposureDivisor =
                     data.has("aeExposureDivisor") && !data.isNull("aeExposureDivisor");
             boolean hasIsoCap = data.has("isoCap") && !data.isNull("isoCap");
-            boolean hasCompress = data.has("compress") && !data.isNull("compress");
+            boolean hasCompress = data.has("compress");
             boolean hasSound = data.has("sound") && !data.isNull("sound");
             Boolean mfnr = hasMfnr ? data.optBoolean("mfnr", true) : null;
             Boolean zsl = hasZsl ? data.optBoolean("zsl", true) : null;
@@ -306,7 +307,15 @@ public class SettingsCommandHandler implements ICommandHandler {
             Integer aeExposureDivisor =
                     hasAeExposureDivisor ? data.optInt("aeExposureDivisor", 0) : null;
             Integer isoCap = hasIsoCap ? data.optInt("isoCap", 0) : null;
-            String compress = hasCompress ? data.optString("compress", "none") : null;
+            if (hasCompress) {
+                try {
+                    PhotoCompression.fromValue(data.opt("compress"));
+                } catch (IllegalArgumentException e) {
+                    sendSettingsError(getRequestId(data), "button_photo", "invalid_photo_compression", e.getMessage());
+                    return false;
+                }
+            }
+            String compress = hasCompress ? (String) data.opt("compress") : null;
             Boolean sound = hasSound ? data.optBoolean("sound", true) : null;
 
             Log.d(

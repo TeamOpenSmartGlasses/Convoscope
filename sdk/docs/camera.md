@@ -236,3 +236,16 @@ not surfaced through `CameraModule` in v1.
 ## Tests
 
 _no integration tests yet_
+
+### Breaking change: photo compression
+
+Photo compression now accepts exactly `none`, `low`, `medium`, and `high`, sent
+unchanged across Cloud, the Mentra Miniapp SDK, Bluetooth SDKs, and glasses.
+The default is `none` everywhere. Glasses encode these as JPEG Q95, Q88, Q78,
+and Q60 respectively; `size` controls dimensions separately. `none` still uses
+lossy JPEG encoding. Unknown values are rejected.
+
+The former `heavy` spelling is removed; callers must use `high`. Cloud no longer
+converts `low` to `medium`, and Android's native default changes from `medium`
+to `none`. Existing miniapps may therefore produce different JPEG quality or
+payload sizes. There are no compatibility aliases or wire translations.

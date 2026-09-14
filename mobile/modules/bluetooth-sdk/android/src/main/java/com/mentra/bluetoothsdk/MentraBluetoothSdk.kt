@@ -684,7 +684,7 @@ class MentraBluetoothSdk private constructor(
                     DeviceStore.set(ObservableStore.BLUETOOTH_CATEGORY, "button_photo_iso_cap", it)
                 }
                 settings.compress?.let {
-                    DeviceStore.set(ObservableStore.BLUETOOTH_CATEGORY, "button_photo_compress", it)
+                    DeviceStore.set(ObservableStore.BLUETOOTH_CATEGORY, "button_photo_compress", it.value)
                 }
                 settings.sound?.let {
                     DeviceStore.set(ObservableStore.BLUETOOTH_CATEGORY, "button_photo_sound", it)

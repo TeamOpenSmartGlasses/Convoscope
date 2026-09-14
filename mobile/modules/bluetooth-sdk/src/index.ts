@@ -1,3 +1,4 @@
+import {parsePhotoCompression} from "@mentra/cloud-protocol/photo-compression"
 import PrivateBluetoothSdkModule from "./_private/BluetoothSdkModule"
 import type {
   BluetoothSdkEventListener,
@@ -133,7 +134,10 @@ export const BluetoothSdk: BluetoothSdkPublicModule = Object.freeze({
    * `requestPhoto(...)` options (e.g. `mode: "text"` for text sensor size/crop, or explicit per-shot
    * fields). Still functional until removed in a future release.
    */
-  setPhotoCaptureDefaults: bindPublicMethod("setPhotoCaptureDefaults"),
+  setPhotoCaptureDefaults: (settings) => {
+    if (settings.compress !== undefined) parsePhotoCompression(settings.compress)
+    return bindPublicMethod("setPhotoCaptureDefaults")(settings)
+  },
   setVideoRecordingDefaults: ({width, height, fps}: VideoRecordingDefaults) => {
     const method = (PrivateBluetoothSdkModule as unknown as Record<string, unknown>).setVideoRecordingDefaults
     if (typeof method !== "function") {

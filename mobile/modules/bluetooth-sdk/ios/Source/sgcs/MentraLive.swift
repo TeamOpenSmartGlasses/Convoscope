@@ -2087,7 +2087,7 @@ class MentraLive: NSObject, SGCManager {
         json["size"] = allowedSizes.contains(size) ? size : "medium"
         json["mode"] = request.mode.rawValue
 
-        json["compress"] = request.compress?.wireValue ?? "none"
+        json["compress"] = request.compress.rawValue
         json["save"] = request.save
         json["sound"] = request.sound
 
@@ -6915,6 +6915,10 @@ extension MentraLive {
         let aeExposureDivisor = DeviceStore.shared.get("bluetooth", "button_photo_ae_exposure_divisor") as? Int
         let isoCap = DeviceStore.shared.get("bluetooth", "button_photo_iso_cap") as? Int
         let compressStr = DeviceStore.shared.get("bluetooth", "button_photo_compress") as? String
+        if let compressStr, PhotoCompression(rawValue: compressStr) == nil {
+            Bridge.log("LIVE: Invalid stored photo compression: \(compressStr)")
+            return
+        }
         let sound = DeviceStore.shared.get("bluetooth", "button_photo_sound") as? Bool
 
         let settings = PhotoCaptureDefaults(
@@ -6927,7 +6931,7 @@ extension MentraLive {
             ispAnalogGain: ispAnalogGain,
             aeExposureDivisor: aeExposureDivisor,
             isoCap: isoCap,
-            compress: compressStr,
+            compress: compressStr.flatMap(PhotoCompression.init(rawValue:)),
             sound: sound,
             resetCaptureTuning: false
         )
@@ -7011,8 +7015,8 @@ extension MentraLive {
         if let isoCap = settings.isoCap, isoCap > 0 {
             json["isoCap"] = isoCap
         }
-        if let compress = settings.compress, !compress.isEmpty {
-            json["compress"] = compress
+        if let compress = settings.compress {
+            json["compress"] = compress.rawValue
         }
         if let sound = settings.sound {
             json["sound"] = sound

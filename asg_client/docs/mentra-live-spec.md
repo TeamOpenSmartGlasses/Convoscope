@@ -142,7 +142,7 @@ while a publisher is pending, live, or reconnecting; while a photo/video or warm
 owns the camera; or while USB webcam capture is active. Busy persistent changes are not saved.
 Override release/expiry retains ownership until the saved crop can be restored safely.
 Direct-upload and BLE JPEG encoding share one `compress` policy: `none` = Q95, `low` = Q88,
-`medium` = Q78, and `high` = Q60 (`heavy` is the legacy alias for `high`).
+`medium` = Q78, and `high` = Q60. Omitted compression defaults to `none`; invalid values are rejected.
 Direct upload re-encodes every level, including omitted/`none` compression at Q95,
 at the captured/cropped dimensions and carries EXIF orientation, IMU data, and capture ID
 over. The original capture's size-dependent JPEG quality does not override this delivery

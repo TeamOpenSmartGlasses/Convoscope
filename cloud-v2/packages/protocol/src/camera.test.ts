@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  normalizePhotoCompress,
   normalizePhotoSizeTier,
   photoOptionsSchema,
 } from "./camera";
@@ -39,7 +38,7 @@ describe("photoOptionsSchema", () => {
   });
 
   test("accepts omitted size", () => {
-    expect(photoOptionsSchema.parse({})).toEqual({});
+    expect(photoOptionsSchema.parse({})).toEqual({ compress: "none" });
   });
 
   test("rejects invalid size", () => {
@@ -47,21 +46,11 @@ describe("photoOptionsSchema", () => {
     expect(result.success).toBe(false);
   });
 
-  test("normalizes compression aliases", () => {
-    expect(photoOptionsSchema.parse({ compress: "low" }).compress).toBe("medium");
-    expect(photoOptionsSchema.parse({ compress: "high" }).compress).toBe("heavy");
-    expect(photoOptionsSchema.parse({ compress: "none" }).compress).toBe("none");
+  test.each(["none", "low", "medium", "high"])("preserves compression %s", (compress) => {
+    expect(photoOptionsSchema.parse({ compress }).compress).toBe(compress);
   });
-});
 
-describe("normalizePhotoCompress", () => {
-  test.each([
-    ["none", "none"],
-    ["low", "medium"],
-    ["medium", "medium"],
-    ["high", "heavy"],
-    ["heavy", "heavy"],
-  ] as const)("maps %s to %s", (input, expected) => {
-    expect(normalizePhotoCompress(input)).toBe(expected);
+  test.each(["heavy", "LOW", "", "unknown", null, 1, false])("rejects compression %p", (compress) => {
+    expect(photoOptionsSchema.safeParse({ compress }).success).toBe(false);
   });
 });

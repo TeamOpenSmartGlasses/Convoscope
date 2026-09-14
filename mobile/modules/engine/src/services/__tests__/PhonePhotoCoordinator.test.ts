@@ -117,7 +117,7 @@ describe("PhonePhotoCoordinator", () => {
       expect(result.mimeType).toBe("image/jpeg")
       expect(result.requestId).toBe("rq-test-1")
 
-      expect(startManagedPhoto).toHaveBeenCalledWith({size: "medium"})
+      expect(startManagedPhoto).toHaveBeenCalledWith({size: "medium", compress: "none"})
       expect(awaitManagedPhotoReady).toHaveBeenCalledWith("rq-test-1")
 
       // BLE call shape: wire v2 sends a short 4-hex correlation id (not the
@@ -231,7 +231,7 @@ describe("PhonePhotoCoordinator", () => {
     test("passes text mode through without forcing public max quality", async () => {
       const coord = new PhonePhotoCoordinator()
       await coord.takePhoto("com.a", {mode: "text", size: "low"})
-      expect(startManagedPhoto).toHaveBeenCalledWith({size: "max"})
+      expect(startManagedPhoto).toHaveBeenCalledWith({size: "max", compress: "none"})
       expect(requestPhotoNative.mock.calls[0]![0]).toMatchObject({mode: "text", size: "low"})
     })
 
@@ -253,13 +253,13 @@ describe("PhonePhotoCoordinator", () => {
       // Legacy wire values may still arrive from older callers at runtime.
       await coord.takePhoto("com.a", {size: "full"})
       expect(requestPhotoNative.mock.calls[0]![0]).toMatchObject({size: "max"})
-      expect(startManagedPhoto).toHaveBeenCalledWith({size: "full"})
+      expect(startManagedPhoto).toHaveBeenCalledWith({size: "full", compress: "none"})
     })
 
     test.each(["low", "high", "max"] as const)("presign accepts canonical size %s without HTTP 400", async (size) => {
       const coord = new PhonePhotoCoordinator()
       await coord.takePhoto("com.a", {size})
-      expect(startManagedPhoto).toHaveBeenCalledWith({size})
+      expect(startManagedPhoto).toHaveBeenCalledWith({size, compress: "none"})
       expect(requestPhotoNative.mock.calls[0]![0]).toMatchObject({size})
     })
 
@@ -555,4 +555,17 @@ describe("native upload completion fallback", () => {
     push({readUrl: PRESIGN.readUrl})
     expect((await pending).photoUrl).toBe(PRESIGN.readUrl)
   })
+})
+
+test.each(["none", "low", "medium", "high"] as const)("preserves compression %s through cloud and native", async (compress) => {
+  const coordinator = new PhonePhotoCoordinator()
+  await coordinator.takePhoto("com.a", {compress})
+  expect(startManagedPhoto).toHaveBeenCalledWith({size: "medium", compress})
+  expect(requestPhotoNative.mock.calls[0]![0]).toMatchObject({compress})
+})
+
+test.each(["heavy", "", "HIGH", null, 1])("rejects compression %p before allocating cloud or native work", async (compress) => {
+  await expect(new PhonePhotoCoordinator().takePhoto("com.a", {compress} as never)).rejects.toThrow("Invalid photo compression")
+  expect(startManagedPhoto).not.toHaveBeenCalled()
+  expect(requestPhotoNative).not.toHaveBeenCalled()
 })

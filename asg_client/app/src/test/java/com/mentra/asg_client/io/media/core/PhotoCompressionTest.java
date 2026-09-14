@@ -31,8 +31,8 @@ public class PhotoCompressionTest {
   }
 
   private void checkTransportParity(int captureQuality) throws Exception {
-    String[] spellings = {"none", "low", "medium", "high", "heavy", null, ""};
-    int[] qualities = {95, 88, 78, 60, 60, 95, 95};
+    String[] spellings = {"none", "low", "medium", "high", null};
+    int[] qualities = {95, 88, 78, 60, 95};
     Bitmap sensor = Bitmap.createBitmap(120, 80, Bitmap.Config.ARGB_8888);
     for (int y = 0; y < 80; y++) {
       for (int x = 0; x < 120; x++) sensor.setPixel(x, y, 0xff000000 | x * 131071 + y * 8191);
@@ -76,7 +76,7 @@ public class PhotoCompressionTest {
 
   @Test
   public void everyUploadLevelPreservesOrientationImuAndOriginalCapture() throws Exception {
-    String[] spellings = {"none", "low", "medium", "high", "heavy", null, ""};
+    String[] spellings = {"none", "low", "medium", "high", null};
     String imuJson = "{\"samples\":[{\"t\":1,\"x\":0.5}]}";
     String captureId = "0123456789abcdef0123456789abcdef";
     // All eight EXIF transforms, including mirrored orientations, retain their meaning
@@ -110,11 +110,11 @@ public class PhotoCompressionTest {
   }
 
   @Test
-  public void legacyAliasAndOmittedCompressionNormalizeOnce() {
-    assertSame(PhotoCompression.HIGH, PhotoCompression.fromValue("heavy"));
+  public void onlyOmissionDefaultsAndInvalidValuesFail() {
     assertSame(PhotoCompression.NONE, PhotoCompression.fromValue(null));
-    assertSame(PhotoCompression.NONE, PhotoCompression.fromValue(""));
-    assertSame(PhotoCompression.NONE, PhotoCompression.fromValue("unknown"));
+    for (Object invalid : new Object[] {"heavy", "", "unknown", "HIGH", 42, false, org.json.JSONObject.NULL}) {
+      assertThrows(IllegalArgumentException.class, () -> PhotoCompression.fromValue(invalid));
+    }
   }
 
   // Compare JPEG quality independently of transport-specific EXIF metadata.

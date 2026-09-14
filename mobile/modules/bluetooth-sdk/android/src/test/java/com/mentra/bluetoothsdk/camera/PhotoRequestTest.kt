@@ -10,6 +10,20 @@ import org.junit.Test
 
 class PhotoRequestTest {
     @Test
+    fun `compression has four exact wire values and defaults to none`() {
+        assertThat(PhotoCompression.values().map { it.value }).containsExactly("none", "low", "medium", "high")
+        for (compression in PhotoCompression.values()) {
+            assertThat(PhotoRequest.fromMap(mapOf("compress" to compression.value)).compress).isEqualTo(compression)
+        }
+        assertThat(PhotoRequest(size = PhotoSize.MEDIUM, webhookUrl = "https://example.com/upload", sound = true).compress).isEqualTo(PhotoCompression.NONE)
+        assertThat(PhotoRequest.fromMap(emptyMap()).compress).isEqualTo(PhotoCompression.NONE)
+        for (invalid in listOf("heavy", "", "HIGH", 1, false)) {
+            assertThatThrownBy { PhotoRequest.fromMap(mapOf("compress" to invalid)) }
+                .isInstanceOf(IllegalArgumentException::class.java)
+        }
+    }
+
+    @Test
     fun `thumbnail is opt in and survives request routing copies`() {
         val fields = mapOf("size" to "medium", "webhookUrl" to "https://example.com/upload")
         assertThat(PhotoRequest.fromMap(fields).presendThumbnail).isFalse()

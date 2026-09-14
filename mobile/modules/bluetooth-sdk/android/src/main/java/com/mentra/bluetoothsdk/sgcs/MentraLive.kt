@@ -1,5 +1,7 @@
 package com.mentra.bluetoothsdk.sgcs
 
+import com.mentra.bluetoothsdk.PhotoCompression
+
 // Mentra
 // old augmentos imports:
 import android.Manifest
@@ -6663,7 +6665,7 @@ class MentraLive : SGCManager() {
         val mode = request.mode.value
         val webhookUrl = request.webhookUrl
         val authToken = request.authToken
-        val compress = request.compress.wireValue
+        val compress = request.compress.value
         val save = request.save
         val sound = request.sound
         val exposureTimeNs = request.exposureTimeNs
@@ -6714,11 +6716,7 @@ class MentraLive : SGCManager() {
                 json.put("size", size)
             }
             json.put("mode", mode)
-            if (compress != null && !compress.isEmpty()) {
-                json.put("compress", compress)
-            } else {
-                json.put("compress", "none")
-            }
+            json.put("compress", compress)
             json.put("save", save)
             json.put("sound", sound)
             if (request.presendThumbnail) json.put("presend_thumbnail", true)
@@ -7934,7 +7932,7 @@ class MentraLive : SGCManager() {
                 command.put("isoCap", isoCap)
             }
             if (!compress.isNullOrEmpty()) {
-                command.put("compress", compress)
+                command.put("compress", PhotoCompression.fromValue(compress).value)
             }
             if (sound != null) {
                 command.put("sound", sound)

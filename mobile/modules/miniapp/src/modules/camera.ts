@@ -2,6 +2,7 @@
  * @fileoverview CameraModule — glasses camera control and photo capture.
  */
 
+import {parsePhotoCompression, type PhotoCompression} from "@mentra/cloud-protocol/photo-compression"
 import {MiniappRequestType} from "../protocol"
 import {MiniappSession} from "../session"
 
@@ -38,7 +39,7 @@ export interface TakePhotoOptions {
    * BLE; `direct` disables BLE fallback; `ble` always relays through the phone.
    */
   transferMethod?: "auto" | "direct" | "ble"
-  compress?: "none" | "low" | "medium" | "high"
+  compress?: PhotoCompression
   sound?: boolean
   saveToGallery?: boolean
   /**
@@ -173,7 +174,7 @@ export class CameraModule {
         size: options.size ?? "medium",
         mode: options.mode ?? "photo",
         ...(options.transferMethod !== undefined ? {transferMethod: options.transferMethod} : {}),
-        compress: options.compress ?? "none",
+        compress: parsePhotoCompression(options.compress),
         sound: options.sound ?? true,
         saveToGallery: options.saveToGallery ?? false,
         exposureTimeNs: options.exposureTimeNs,

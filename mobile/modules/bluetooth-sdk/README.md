@@ -748,4 +748,17 @@ secrets, not in the repository.
 
 The [Mentra Bluetooth SDK Starter Kit](https://github.com/Mentra-Community/Mentra-Bluetooth-SDK-Starter-Kit) includes starter example apps for Android, iOS, and React Native / Expo. The React Native starter demonstrates scan/connect, display, camera photo upload, RTMP/SRT/WebRTC streaming, Wi-Fi/hotspot, microphone PCM, RGB LED, gallery mode, and console event inspection.
 
-BLE JPEG photo compression supports `none` (Q95), `low` (Q88), `medium` (Q78), and `high` (Q60) on updated glasses firmware. `heavy` remains a legacy alias for `high`; both use `heavy` on the wire for older firmware compatibility. Pixel limits are controlled separately by `size`.
+BLE JPEG photo compression supports `none` (Q95), `low` (Q88), `medium` (Q78), and `high` (Q60) on updated glasses firmware. Omitted compression defaults to `none`. Values are sent unchanged and invalid values are rejected. Pixel limits are controlled separately by `size`.
+
+### Breaking change: photo compression
+
+Photo compression now accepts exactly `none`, `low`, `medium`, and `high`, sent
+unchanged across Cloud, the Mentra Miniapp SDK, Bluetooth SDKs, and glasses.
+The default is `none` everywhere. Glasses encode these as JPEG Q95, Q88, Q78,
+and Q60 respectively; `size` controls dimensions separately. `none` still uses
+lossy JPEG encoding. Unknown values are rejected.
+
+The former `heavy` spelling is removed; callers must use `high`. Cloud no longer
+converts `low` to `medium`, and Android's native default changes from `medium`
+to `none`. Existing miniapps may therefore produce different JPEG quality or
+payload sizes. There are no compatibility aliases or wire translations.

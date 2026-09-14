@@ -9,7 +9,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 
 /** Transport-independent JPEG quality. Pixel limits are owned by size/crop policy. */
-enum PhotoCompression {
+public enum PhotoCompression {
   NONE(AsgConstants.PHOTO_JPEG_QUALITY_NONE),
   LOW(AsgConstants.PHOTO_JPEG_QUALITY_LOW),
   MEDIUM(AsgConstants.PHOTO_JPEG_QUALITY_MEDIUM),
@@ -21,11 +21,13 @@ enum PhotoCompression {
     this.jpegQuality = jpegQuality;
   }
 
-  static PhotoCompression fromValue(String value) {
+  /** Parse the exact wire value; only omission defaults to none. */
+  public static PhotoCompression fromValue(Object value) {
+    if (value == null || "none".equals(value)) return NONE;
     if ("low".equals(value)) return LOW;
     if ("medium".equals(value)) return MEDIUM;
-    if ("high".equals(value) || "heavy".equals(value)) return HIGH;
-    return NONE;
+    if ("high".equals(value)) return HIGH;
+    throw new IllegalArgumentException("Invalid photo compression: " + value);
   }
 
   /**

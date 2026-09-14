@@ -16,6 +16,7 @@
  * See docs/issues/002-cloud-runtime/camera/spec.md and
  * docs/issues/004-cloud-client/design.md ("Camera").
  */
+import { parsePhotoCompression } from "@mentra/cloud-protocol/photo-compression";
 import type { HttpClient } from "../../http";
 import { systemTimers, type CloudClientTimers } from "../../timers";
 import type {
@@ -109,7 +110,7 @@ export class Camera {
       requestId: string;
       uploadUrl: string;
       readUrl: string;
-    }>(PHOTO_PATH, opts);
+    }>(PHOTO_PATH, { ...opts, compress: parsePhotoCompression(opts.compress) });
   }
 
   /** Step 2: resolve when the cloud pushes `photo.ready` for the request. */
