@@ -21,6 +21,7 @@ import com.mentra.asg_client.camera.model.CameraOperationError;
 import com.mentra.asg_client.camera.model.CapturedPhoto;
 import com.mentra.asg_client.camera.model.PhotoCaptureSettings;
 import com.mentra.asg_client.camera.model.QueuedPhotoRequestQueue;
+import com.mentra.asg_client.camera.policy.PhotoCompressionLevel;
 import com.mentra.asg_client.camera.policy.PhotoMode;
 import com.mentra.asg_client.camera.policy.PhotoSizeTier;
 import com.mentra.asg_client.io.file.core.FileManager;
@@ -237,14 +238,13 @@ public class MediaCaptureService {
         }
     }
 
+    /** Compression tier tracked for a request; {@code none} when the request never set one. */
+    private PhotoCompressionLevel resolveCompressionLevel(String requestId) {
+        return PhotoCompressionLevel.fromWire(photoRequestedCompression.get(requestId));
+    }
+
     private int resolveBleJpegQuality(String requestId) {
-        String compress = photoRequestedCompression.get(requestId);
-        if ("low".equals(compress)) return AsgConstants.BLE_PHOTO_JPEG_QUALITY_LOW;
-        if ("medium".equals(compress)) return AsgConstants.BLE_PHOTO_JPEG_QUALITY_MEDIUM;
-        if ("high".equals(compress) || "heavy".equals(compress)) {
-            return AsgConstants.BLE_PHOTO_JPEG_QUALITY_HIGH;
-        }
-        return AsgConstants.BLE_PHOTO_JPEG_QUALITY_NONE;
+        return resolveCompressionLevel(requestId).jpegQuality();
     }
 
     private BleParams resolveBleParams(String requestedSize) {
@@ -2747,7 +2747,7 @@ public class MediaCaptureService {
      * @param size Photo size
      * @param enableFlash Whether to enable privacy flash LED
      * @param enableSound Whether to enable shutter sound
-     * @param compress Compression level (none, medium, heavy)
+     * @param compress Compression level ({@code none | low | medium | high}; {@code heavy} = high)
      * @param exposureTimeNs optional sensor exposure time in nanoseconds for this capture only;
      *     {@code null} = auto
      * @param iso optional sensor sensitivity for manual exposure captures only; {@code null} =
@@ -2850,7 +2850,7 @@ public class MediaCaptureService {
         // Track requested size for potential fallbacks
         photoRequestedSizes.put(requestId, size);
         photoRequestedModes.put(requestId, mode);
-        photoRequestedCompression.put(requestId, compress == null ? "none" : compress);
+        photoRequestedCompression.put(requestId, PhotoCompressionLevel.normalize(compress));
 
         Log.d(TAG, "Taking photo and uploading to " + webhookUrl);
 
@@ -4002,148 +4002,84 @@ public class MediaCaptureService {
                     .start();
             return;
         }
-        Log.d(TAG, "📸 Processing photo upload with SDK compression setting: " + compress);
+        PhotoCompressionLevel level = PhotoCompressionLevel.fromWire(compress);
+        Log.d(
+                TAG,
+                "📸 Processing photo upload with SDK compression setting: "
+                        + compress
+                        + " -> "
+                        + level.wireValue());
 
-        // Check SDK compression setting
-        if ("none".equals(compress) || compress == null || compress.isEmpty()) {
+        if (!level.reencodesUpload()) {
             Log.d(TAG, "📸 No compression requested - uploading original image");
             performDirectUpload(uploadPath, requestId, webhookUrl, authToken);
         } else {
-            Log.d(TAG, "🗜️ Compression requested - applying SDK compression setting: " + compress);
+            Log.d(
+                    TAG,
+                    "🗜️ Compression requested - re-encoding at JPEG quality "
+                            + level.jpegQuality()
+                            + " ("
+                            + level.wireValue()
+                            + ")");
             sendPhotoStatus(requestId, "compressing");
 
-            compressImageForUpload(uploadPath, requestId, webhookUrl, authToken, compress);
+            compressImageForUpload(uploadPath, requestId, webhookUrl, authToken, level);
         }
     }
 
-    /** Compress image based on SDK compression level */
+    /**
+     * Re-encode the capture at the tier's JPEG quality and upload the copy. Dimensions are left
+     * alone: {@code size} already bounded them, and shrinking here would make {@code compress}
+     * silently change resolution on the Wi-Fi path but not on BLE.
+     */
     private void compressImageForUpload(
             String originalPath,
             String requestId,
             String webhookUrl,
             String authToken,
-            String compress) {
+            PhotoCompressionLevel level) {
         new Thread(
                         () -> {
                             try {
-                                Log.d(
-                                        TAG,
-                                        "🗜️ Starting image compression for "
-                                                + compress
-                                                + " level");
                                 long compressionStartTime = System.currentTimeMillis();
-
-                                // Load original image
-                                android.graphics.Bitmap original =
-                                        android.graphics.BitmapFactory.decodeFile(originalPath);
-                                if (original == null) {
-                                    Log.e(TAG, "❌ Failed to load original image for compression");
-                                    performDirectUpload(
-                                            originalPath, requestId, webhookUrl, authToken);
-                                    return;
-                                }
-
-                                // Calculate compression parameters based on SDK compression level
-                                int originalWidth = original.getWidth();
-                                int originalHeight = original.getHeight();
-                                Log.d(
-                                        TAG,
-                                        "📐 Original image dimensions: "
-                                                + originalWidth
-                                                + "x"
-                                                + originalHeight);
-
-                                // Compression parameters based on SDK compression level
-                                float compressionRatio;
-                                int jpegQuality;
-                                String compressionStrategy;
-
-                                if ("heavy".equals(compress)) {
-                                    compressionRatio = 0.50f; // 50% of original size
-                                    jpegQuality = 60;
-                                    compressionStrategy = "50% size + 60% quality (HEAVY)";
-                                } else { // "medium"
-                                    compressionRatio = 0.75f; // 75% of original size
-                                    jpegQuality = 80;
-                                    compressionStrategy = "75% size + 80% quality (MEDIUM)";
-                                }
-
-                                Log.d(TAG, "🎯 Compression strategy: " + compressionStrategy);
-
-                                // Calculate compressed dimensions
-                                int compressedWidth = (int) (originalWidth * compressionRatio);
-                                int compressedHeight = (int) (originalHeight * compressionRatio);
-
-                                // Maintain aspect ratio
-                                float aspectRatio = (float) originalWidth / originalHeight;
-                                if (aspectRatio > 1) {
-                                    compressedHeight = (int) (compressedWidth / aspectRatio);
-                                } else {
-                                    compressedWidth = (int) (compressedHeight * aspectRatio);
-                                }
-
-                                Log.d(
-                                        TAG,
-                                        "📐 Compressed image dimensions: "
-                                                + compressedWidth
-                                                + "x"
-                                                + compressedHeight);
-
-                                // Create compressed bitmap
-                                android.graphics.Bitmap compressed =
-                                        android.graphics.Bitmap.createScaledBitmap(
-                                                original, compressedWidth, compressedHeight, true);
-                                original.recycle();
-
-                                // Save compressed image to temporary file
-                                String compressedPath =
-                                        originalPath.replace(
-                                                ".jpg", "_compressed_" + compress + ".jpg");
-                                FileOutputStream fos = new FileOutputStream(compressedPath);
-                                compressed.compress(
-                                        android.graphics.Bitmap.CompressFormat.JPEG,
-                                        jpegQuality,
-                                        fos);
-                                fos.close();
-                                compressed.recycle();
-
-                                PhotoExifMetadataWriter.copyImuMetadata(
-                                        originalPath, compressedPath);
+                                File originalFile = new File(originalPath);
+                                File compressedFile =
+                                        PhotoUploadCompressor.compress(originalFile, level);
 
                                 long compressionDuration =
                                         System.currentTimeMillis() - compressionStartTime;
-                                Log.d(
-                                        TAG,
-                                        "⏱️ Image compression completed in: "
-                                                + compressionDuration
-                                                + "ms");
-                                Log.d(TAG, "✅ Compressed image saved: " + compressedPath);
-
-                                // Calculate compression ratio achieved
-                                File originalFile = new File(originalPath);
-                                File compressedFile = new File(compressedPath);
                                 long originalSize = originalFile.length();
                                 long compressedSize = compressedFile.length();
                                 float sizeReduction =
-                                        ((float) (originalSize - compressedSize) / originalSize)
-                                                * 100;
-
-                                Log.d(TAG, "📊 Compression stats:");
-                                Log.d(TAG, "📊 Original size: " + originalSize + " bytes");
-                                Log.d(TAG, "📊 Compressed size: " + compressedSize + " bytes");
+                                        originalSize > 0
+                                                ? ((float) (originalSize - compressedSize)
+                                                                / originalSize)
+                                                        * 100
+                                                : 0f;
                                 Log.d(
                                         TAG,
-                                        "📊 Size reduction: "
-                                                + String.format("%.1f", sizeReduction)
-                                                + "%");
+                                        "📊 Upload compression "
+                                                + level.wireValue()
+                                                + " q="
+                                                + level.jpegQuality()
+                                                + " took "
+                                                + compressionDuration
+                                                + "ms: "
+                                                + originalSize
+                                                + " -> "
+                                                + compressedSize
+                                                + " bytes ("
+                                                + String.format(Locale.US, "%.1f", sizeReduction)
+                                                + "% smaller)");
 
-                                // Upload compressed version
                                 performDirectUpload(
-                                        compressedPath, requestId, webhookUrl, authToken);
+                                        compressedFile.getAbsolutePath(),
+                                        requestId,
+                                        webhookUrl,
+                                        authToken);
 
                                 // Clean up compressed file after upload
-                                new File(compressedPath).deleteOnExit();
-
+                                compressedFile.deleteOnExit();
                             } catch (Exception e) {
                                 Log.e(
                                         TAG,
@@ -4151,7 +4087,8 @@ public class MediaCaptureService {
                                                 + e.getMessage());
                                 performDirectUpload(originalPath, requestId, webhookUrl, authToken);
                             }
-                        })
+                        },
+                        "PhotoUploadCompress")
                 .start();
     }
 
@@ -5069,7 +5006,7 @@ public class MediaCaptureService {
      * @param webhookUrl Webhook URL for upload
      * @param bleImgId BLE image ID for fallback
      * @param save Whether to keep the photo on device
-     * @param compress Compression level (none, medium, heavy)
+     * @param compress Compression level ({@code none | low | medium | high}; {@code heavy} = high)
      * @param exposureTimeNs optional sensor exposure time in nanoseconds for this capture only;
      *     {@code null} = auto
      * @param iso optional sensor sensitivity for manual exposure captures only; {@code null} =
@@ -5128,7 +5065,7 @@ public class MediaCaptureService {
             photoOriginalPaths.put(requestId, photoFilePath);
             photoRequestedSizes.put(requestId, size);
             photoRequestedModes.put(requestId, mode);
-        photoRequestedCompression.put(requestId, compress == null ? "none" : compress);
+        photoRequestedCompression.put(requestId, PhotoCompressionLevel.normalize(compress));
             tracePhotoWifiRoute(requestId, "direct_webhook", "wifi_connected", webhookUrl, null);
 
             Log.d(TAG, "📶 WiFi connected - attempting direct upload for " + requestId);
@@ -5300,7 +5237,7 @@ public class MediaCaptureService {
         // Track requested size for BLE compression
         photoRequestedSizes.put(requestId, size);
         photoRequestedModes.put(requestId, mode);
-        photoRequestedCompression.put(requestId, compress == null ? "none" : compress);
+        photoRequestedCompression.put(requestId, PhotoCompressionLevel.normalize(compress));
         // Notify that we're about to take a photo
         if (mMediaCaptureListener != null) {
             mMediaCaptureListener.onPhotoCapturing(requestId);

@@ -501,15 +501,20 @@ public class AsgConstants {
     public static final String BLE_PHOTO_CODEC = "JPEG_FAST";
 
     /**
-     * BLE JPEG quality when compression is none or omitted (still lossy JPEG).
+     * JPEG quality ladder for the {@code compress} request field, shared by BLE encoding and the
+     * Wi-Fi upload re-encode. {@code compress} only selects quality; the {@code size} tier alone
+     * bounds pixel dimensions. See {@link com.mentra.asg_client.camera.policy.PhotoCompressionLevel}.
+     *
+     * <p>{@code none}: BLE payloads must still be JPEG-encoded, so this is the quality used when
+     * compression is omitted. Wi-Fi uploads with {@code none} send the captured file untouched.
      */
-    public static final int BLE_PHOTO_JPEG_QUALITY_NONE = 95;
-    /** BLE JPEG quality for low compression. */
-    public static final int BLE_PHOTO_JPEG_QUALITY_LOW = 88;
-    /** BLE JPEG quality for medium compression. */
-    public static final int BLE_PHOTO_JPEG_QUALITY_MEDIUM = 78;
-    /** BLE JPEG quality for high compression. */
-    public static final int BLE_PHOTO_JPEG_QUALITY_HIGH = 60;
+    public static final int PHOTO_JPEG_QUALITY_NONE = 95;
+    /** JPEG quality for {@code low} compression. */
+    public static final int PHOTO_JPEG_QUALITY_LOW = 88;
+    /** JPEG quality for {@code medium} compression. */
+    public static final int PHOTO_JPEG_QUALITY_MEDIUM = 78;
+    /** JPEG quality for {@code high} compression ({@code heavy} is the legacy wire alias). */
+    public static final int PHOTO_JPEG_QUALITY_HIGH = 60;
 
     /**
      * Log UART file-transfer send progress every N packets. {@code 0} = off (start/end/errors

@@ -8,6 +8,7 @@ import android.hardware.camera2.CameraManager;
 import com.mentra.asg_client.camera.lifecycle.CameraOpener;
 import android.util.Log;
 import com.mentra.asg_client.AsgConstants;
+import com.mentra.asg_client.camera.policy.PhotoCompressionLevel;
 import com.mentra.asg_client.camera.policy.PhotoSizeTier;
 import com.mentra.asg_client.service.communication.interfaces.ICommunicationManager;
 import com.mentra.asg_client.service.communication.interfaces.IResponseBuilder;
@@ -296,7 +297,11 @@ public class SettingsCommandHandler implements ICommandHandler {
             Integer aeExposureDivisor =
                     hasAeExposureDivisor ? data.optInt("aeExposureDivisor", 0) : null;
             Integer isoCap = hasIsoCap ? data.optInt("isoCap", 0) : null;
-            String compress = hasCompress ? data.optString("compress", "none") : null;
+            // Persist the canonical tier so a stored legacy "heavy" cannot diverge from "high".
+            String compress =
+                    hasCompress
+                            ? PhotoCompressionLevel.normalize(data.optString("compress", "none"))
+                            : null;
             Boolean sound = hasSound ? data.optBoolean("sound", true) : null;
 
             Log.d(

@@ -130,8 +130,11 @@ same gate. An unchanged crop never restarts the HAL. A changed crop is rejected 
 while a publisher is pending, live, or reconnecting; while a photo/video or warm-camera service
 owns the camera; or while USB webcam capture is active. Busy persistent changes are not saved.
 Override release/expiry retains ownership until the saved crop can be restored safely.
-BLE JPEG encoding honors `compress`: `none` = Q95, `low` = Q88,
-`medium` = Q78, and `high` = Q60. The size tier independently controls pixel limits.
+`compress` selects JPEG quality only: `none` = Q95, `low` = Q88, `medium` = Q78, and
+`high` = Q60 (`heavy` is the legacy wire alias for `high`; unknown values fall back to `none`).
+BLE encoding and the Wi-Fi upload re-encode share this ladder; a Wi-Fi upload with `none`
+sends the captured file untouched. The size tier independently controls pixel limits, so
+compression never changes image dimensions on either transport.
 Warm-camera leases default to 15 seconds and support requested holds up to 5 minutes.
 FOV `ready` acknowledgments wait for delayed camera tuning to finish, its subsequent
 restart cooldown, and Camera2 camera

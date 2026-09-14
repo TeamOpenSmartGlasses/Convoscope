@@ -94,10 +94,10 @@ Capture a still photo. The handler routes through `transferMethod` to one of thr
 
 - Captures at ASG-owned sensor dimensions (`TEXT_MODE_SENSOR_CAPTURE_*`, currently 3840×2160 — Mentra Live's max 16:9 still) via an internal resolution tier — not the public `max` quality tier. Requested `size` is ignored for sensor resolution.
 - Runs text-region detection and crops to the detected ROI before BLE transfer.
-- Uses a dedicated 2880 px long-edge cap after a successful text crop; the configured BLE codec and quality apply afterward (currently JPEG quality 80).
+- Uses a dedicated 2880 px long-edge cap after a successful text crop; the configured BLE codec and the `compress` tier's JPEG quality apply afterward (`none` Q95, `low` Q88, `medium` Q78, `high` Q60).
 - If detection finds no usable text region or fails, the pipeline preserves the full frame and retains the smaller 1920 px fallback cap.
 - Best results on documents, signs, and windshield VIN stickers; plain scenes may look similar to `photo` when the full-frame fallback is used.
-| `compress`           | string  | `"none"`            | Compression preset passed to capture pipeline               |
+| `compress`           | string  | `"none"`            | JPEG quality tier: `none` \| `low` \| `medium` \| `high` (`heavy` = `high`) |
 | `flash`              | boolean | `true`              | Fire the privacy LED during capture                         |
 | `sound`              | boolean | `true`              | Play shutter sound                                          |
 | `exposureTimeNs`     | number  | absent              | Optional one-shot manual sensor exposure time in ns         |
