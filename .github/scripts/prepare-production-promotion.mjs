@@ -6,12 +6,13 @@ import {fileURLToPath} from "node:url"
 
 import {createInitialPromotionRecord, promotionAssetName} from "./production-promotion-state.mjs"
 import {
+  buildNumberBelongsTo,
   createReleasePlan,
-  familyBuildNumberWindow,
   loadReleaseFamily,
   releaseRecordSha256,
   serializeReleaseRecord,
 } from "./release-family.mjs"
+import {allocateStoreBuildNumber, appleBuilds, googleVersionCodes} from "./store-build-numbers.mjs"
 
 const COMMIT_PATTERN = /^[0-9a-f]{40}$/
 
@@ -29,30 +30,12 @@ function validateInventory(inventory, {bundleId, allowNoCurrent}) {
   if (inventory.google?.packageName !== bundleId) throw new Error(`Google inventory does not identify ${bundleId}`)
   requireInteger(inventory.apple.maxBuildNumber, `${bundleId} Apple maxBuildNumber`)
   requireInteger(inventory.google.maxVersionCode, `${bundleId} Google maxVersionCode`)
-  if (!Array.isArray(inventory.apple.buildNumbers))
-    throw new Error(`${bundleId} Apple inventory lists no build numbers`)
-  if (!inventory.google.tracks || typeof inventory.google.tracks !== "object") {
-    throw new Error(`${bundleId} Google inventory lists no tracks`)
-  }
+  appleBuilds(inventory.apple, `${bundleId} Apple inventory`)
+  googleVersionCodes(inventory.google, `${bundleId} Google inventory`)
   if (!allowNoCurrent && (!inventory.apple.current || !Number.isSafeInteger(inventory.google.currentVersionCode))) {
     throw new Error(`${bundleId} has no current public store release`)
   }
   return inventory
-}
-
-// Build numbers the stores already hold inside one family's window. The global
-// store maximum is never used for allocation: a single stray upload outside the
-// window (a 900000001 once sat in App Store Connect) would otherwise drag every
-// later candidate above it for good.
-export function storeBuildNumbersWithin(inventory, window) {
-  const inWindow = (value) => Number.isSafeInteger(value) && value >= window.first && value <= window.last
-  const apple = inventory.apple.buildNumbers.filter(inWindow)
-  const google = Object.values(inventory.google.tracks)
-    .flat()
-    .flatMap((release) => release?.versionCodes || [])
-    .map(Number)
-    .filter(inWindow)
-  return [...apple, ...google]
 }
 
 function validateCurrentMentraApp(previousManifest, inventory) {
@@ -134,33 +117,28 @@ export function prepareProductionPromotion({
   validateSelectedBeta({family, betaPlan, betaManifest})
   validateInventory(mentraInventory, {bundleId: "com.mentra.mentra", allowNoCurrent: false})
   const currentMentraApp = validateCurrentMentraApp(previousManifest, mentraInventory)
-  const window = familyBuildNumberWindow(family.familyBaseVersion)
-  if (betaPlan.native.buildNumber < window.first || betaPlan.native.buildNumber > window.last) {
+  if (!buildNumberBelongsTo(family.familyBaseVersion, betaPlan.native.buildNumber)) {
     throw new Error(
       `Selected beta build number ${betaPlan.native.buildNumber} is outside the ${family.familyBaseVersion} family window`,
     )
   }
-  const mentraBuildNumber =
-    Math.max(...storeBuildNumbersWithin(mentraInventory, window), betaPlan.native.buildNumber) + 1
-  if (mentraBuildNumber > window.last) {
-    throw new Error(`Family ${family.familyBaseVersion} has exhausted its store build numbers`)
-  }
+  const mentraBuildNumber = allocateStoreBuildNumber({
+    marketingVersion: family.familyBaseVersion,
+    apple: mentraInventory.apple,
+    google: mentraInventory.google,
+    atLeast: [betaPlan.native.buildNumber],
+  })
   // The compatibility lab rebuilds the current public app, so its number lives
   // in that app's own family window, above what the stores hold there.
   const hasCompatibilityLab = currentMentraApp.provenance === "coordinated"
-  let compatibilityLabBuildNumber = null
-  if (hasCompatibilityLab) {
-    const currentWindow = familyBuildNumberWindow(currentMentraApp.ios.marketingVersion)
-    compatibilityLabBuildNumber =
-      Math.max(
-        ...storeBuildNumbersWithin(mentraInventory, currentWindow),
-        currentMentraApp.ios.buildNumber,
-        currentMentraApp.android.buildNumber,
-      ) + 1
-    if (compatibilityLabBuildNumber > currentWindow.last) {
-      throw new Error(`Family ${currentMentraApp.ios.marketingVersion} has exhausted its store build numbers`)
-    }
-  }
+  const compatibilityLabBuildNumber = hasCompatibilityLab
+    ? allocateStoreBuildNumber({
+        marketingVersion: currentMentraApp.ios.marketingVersion,
+        apple: mentraInventory.apple,
+        google: mentraInventory.google,
+        atLeast: [currentMentraApp.ios.buildNumber, currentMentraApp.android.buildNumber],
+      })
+    : null
   // Google Play only publishes a production release above the one it serves.
   if (mentraBuildNumber <= mentraInventory.google.currentVersionCode) {
     throw new Error(

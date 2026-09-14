@@ -74,7 +74,7 @@ jobs:
             --branch dev \
             --sequence 1 \
             --source-commit "$(git rev-parse HEAD)" \
-            --native-build-number 310000001 \
+            --native-build-sequence 1 \
             --ota-inputs "$ota_inputs" \
             --require-version-mirrors true \
             --output "$release_plan"

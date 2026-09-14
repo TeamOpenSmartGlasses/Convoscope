@@ -15,12 +15,8 @@ import path from "node:path"
 import {fileURLToPath} from "node:url"
 
 import {validateSelectedBeta} from "./prepare-production-promotion.mjs"
-import {
-  createReleasePlan,
-  familyBuildNumberWindow,
-  loadReleaseFamily,
-  serializeReleaseRecord,
-} from "./release-family.mjs"
+import {buildNumberBelongsTo, createReleasePlan, loadReleaseFamily, serializeReleaseRecord} from "./release-family.mjs"
+import {allocateStoreBuildNumber} from "./store-build-numbers.mjs"
 
 export const EXAMPLE_BUNDLE_ID = "com.mentra.bluetoothsdkexample"
 // iOS is distributed like a public beta: an external TestFlight group with a
@@ -48,35 +44,28 @@ export function allocateExampleBuildNumber({betaPlan, appleInventory, googleInve
     throw new Error(`Apple inventory does not identify ${EXAMPLE_BUNDLE_ID}`)
   }
   requireInteger(appleInventory.maxBuildNumber, "Apple maxBuildNumber")
-  let googleMax = 0
   if (googleInventory !== null) {
     if (googleInventory?.packageName !== EXAMPLE_BUNDLE_ID) {
       throw new Error(`Google inventory does not identify ${EXAMPLE_BUNDLE_ID}`)
     }
-    googleMax = requireInteger(googleInventory.maxVersionCode, "Google maxVersionCode")
+    requireInteger(googleInventory.maxVersionCode, "Google maxVersionCode")
   }
   if (!Number.isSafeInteger(betaPlan?.native?.buildNumber) || betaPlan.native.buildNumber < 1) {
     throw new Error("Selected beta has no native build number")
   }
   // Same family window rule as the Mentra App: only numbers of this family
-  // count, so a stray upload cannot drag the example's numbers away.
-  const window = familyBuildNumberWindow(betaPlan.familyBaseVersion)
-  if (betaPlan.native.buildNumber < window.first || betaPlan.native.buildNumber > window.last) {
+  // count, so a stray upload cannot drag the example's numbers away, and App
+  // Store Connect's per-version rule is honoured.
+  if (!buildNumberBelongsTo(betaPlan.familyBaseVersion, betaPlan.native.buildNumber)) {
     throw new Error(`Selected beta build number ${betaPlan.native.buildNumber} is outside the family window`)
   }
-  const inWindow = (value) => Number.isSafeInteger(value) && value >= window.first && value <= window.last
-  const appleNumbers = (appleInventory.buildNumbers || [appleInventory.maxBuildNumber]).filter(inWindow)
-  const googleNumbers =
-    googleInventory === null
-      ? []
-      : Object.values(googleInventory.tracks || {})
-          .flat()
-          .flatMap((release) => release?.versionCodes || [])
-          .map(Number)
-          .concat([googleMax])
-          .filter(inWindow)
-  const buildNumber = Math.max(...appleNumbers, ...googleNumbers, betaPlan.native.buildNumber) + 1
-  if (buildNumber > window.last) throw new Error("Example build numbers are exhausted for this family")
+  const buildNumber = allocateStoreBuildNumber({
+    marketingVersion: betaPlan.familyBaseVersion,
+    apple: appleInventory,
+    google: googleInventory,
+    atLeast: [betaPlan.native.buildNumber],
+    label: `example ${betaPlan.familyBaseVersion}`,
+  })
   if (buildNumber > ANDROID_MAX_VERSION_CODE) throw new Error("Example build number exceeds the Android-safe range")
   return buildNumber
 }

@@ -11,6 +11,7 @@ import {
   dependencyOrder,
   deriveReleaseIdentity,
   finalizeReleaseManifest,
+  familyBuildNumber,
   loadReleaseFamily,
   releaseRecordSha256,
   requirePublicHttpsUrl,
@@ -106,7 +107,7 @@ test("creates a deterministic release plan with exact dependency versions", () =
     channel: "beta",
     sequence: 57,
     sourceCommit: "a".repeat(40),
-    nativeBuildNumber: 310000057,
+    nativeBuildNumber: familyBuildNumber(family.familyBaseVersion, 57),
     otaInputs: {firmwareManifest: "firmware_live.json"},
   })
 
@@ -114,7 +115,7 @@ test("creates a deterministic release plan with exact dependency versions", () =
   assert.equal(plan.artifactContainerTag, "mentra-builds-v3.1.0")
   assert.equal(plan.artifactContainerName, "Mentra 3.1.0 development builds")
   assert.equal(plan.native.marketingVersion, "3.1.0")
-  assert.equal(plan.native.buildNumber, 310000057)
+  assert.equal(plan.native.buildNumber, familyBuildNumber(family.familyBaseVersion, 57))
   assert.deepEqual(plan.changelog, family.changelog)
   assert.equal(plan.products["@mentra/engine"], "3.1.0-beta.57")
   assert.equal(plan.members["@mentra/engine"].dependencies["@mentra/bluetooth-sdk"], "3.1.0-beta.57")
@@ -130,7 +131,7 @@ test("creates a deterministic release plan with exact dependency versions", () =
     family,
     channel: "production",
     sourceCommit: "b".repeat(40),
-    nativeBuildNumber: 310000057,
+    nativeBuildNumber: familyBuildNumber(family.familyBaseVersion, 57),
   })
   assert.equal(productionPlan.artifactContainerTag, "mentra-v3.1.0")
   assert.equal(productionPlan.artifactContainerName, "Mentra 3.1.0")
@@ -143,7 +144,7 @@ test("serializes records canonically and finalizes only complete release results
     channel: "beta",
     sequence: 57,
     sourceCommit: "a".repeat(40),
-    nativeBuildNumber: 310000057,
+    nativeBuildNumber: familyBuildNumber(family.familyBaseVersion, 57),
   })
   const publication = (coordinate) => ({
     status: "published",
@@ -194,7 +195,7 @@ test("serializes records canonically and finalizes only complete release results
     channel: "beta",
     sequence: 57,
     sourceCommit: "a".repeat(40),
-    nativeBuildNumber: 310000057,
+    nativeBuildNumber: familyBuildNumber(family.familyBaseVersion, 57),
     publicBetaTestflight: true,
   })
   assert.deepEqual(publicPlan.native.testflight, {group: "Mentra Staging Public", audience: "external"})
@@ -254,7 +255,7 @@ test("serializes records canonically and finalizes only complete release results
       channel: "dev",
       sequence: 57,
       sourceCommit: "a".repeat(40),
-      nativeBuildNumber: 310000057,
+      nativeBuildNumber: familyBuildNumber(family.familyBaseVersion, 57),
       publicBetaTestflight: true,
     }).native.testflight,
     undefined,

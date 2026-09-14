@@ -142,15 +142,19 @@ approval, and `release` refuses to proceed while a deferral is unresolved.
 Every store build number of the family, the Mentra App's iOS build and Android
 version code and the ASG client's version code, is derived from the family
 base version: `MAJOR × 100,000,000 + MINOR × 10,000,000 + PATCH × 100,000 +
-sequence` (minor at most 9, patch at most 99, sequence below 100,000). Dev and
-beta use the coordinated run number as the sequence, so the app and an ASG
-client rebuilt in the same run share a number; production takes the next free
-sequence above everything the stores already hold inside the family's window,
-and a compatibility-lab rebuild of the current app takes the next free
-sequence in that app's own family. Numbers outside the window, whether a
-legacy scheme or a stray upload, never influence allocation. Every channel of
-a family therefore orders naturally on both stores: beta < production < the
-next family's dev and beta.
+sequence`, with major between 2 and 20, minor at most 9, patch at most 99 and
+sequence between 1 and 99,999. Dev and beta use the coordinated run number as
+the sequence; an ASG client rebuilt in a run takes the same number unless a
+higher code is already used in its family, in which case it takes the next free
+one. Production takes the next free sequence above everything the stores hold
+inside the family's window and above every App Store Connect build of that
+marketing version, and a compatibility-lab rebuild of the current app takes
+the next free sequence in that app's own family. Numbers outside the window
+never influence allocation, with one exception dictated by App Store Connect:
+a build uploaded under the family's own version string above its window makes
+that version string unusable, and the release must move to a new family
+version. Every channel of a family therefore orders naturally on both stores:
+beta < production < the next family's dev and beta.
 
 ## Phase 1 - select and freeze
 

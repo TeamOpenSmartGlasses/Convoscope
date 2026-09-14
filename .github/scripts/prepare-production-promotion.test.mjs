@@ -2,15 +2,19 @@ import assert from "node:assert/strict"
 import test from "node:test"
 
 import {prepareProductionPromotion} from "./prepare-production-promotion.mjs"
-import {createReleasePlan, loadReleaseFamily, releaseRecordSha256} from "./release-family.mjs"
+import {createReleasePlan, familyBuildNumber, loadReleaseFamily, releaseRecordSha256} from "./release-family.mjs"
 
 const family = loadReleaseFamily()
+// Family-window numbers derived from the loaded family, so the fixtures follow
+// the repository's family base version.
+const n = (sequence) => familyBuildNumber(family.familyBaseVersion, sequence)
+
 const betaPlan = createReleasePlan({
   family,
   channel: "beta",
   sequence: 57,
   sourceCommit: "a".repeat(40),
-  nativeBuildNumber: 310000057,
+  nativeBuildNumber: n(57),
 })
 const betaManifest = {
   schemaVersion: 1,
@@ -31,19 +35,28 @@ const previousManifest = {
   url: "https://github.com/Mentra-Community/MentraOS/releases/download/mentra-v3.0.0/manifest.json",
 }
 
+// The real inventory contract: App Store builds with their marketing version,
+// Play tracks as {track: [versionCode, ...]}.
 function inventory(bundleId, current, appleMax, googleMax, extra = {}) {
-  const appleNumbers = [...(current ? [current.buildNumber] : []), appleMax, ...(extra.appleNumbers || [])]
-  const googleNumbers = [googleMax, ...(extra.googleNumbers || [])]
+  const currentVersion = current?.marketingVersion ?? null
+  const builds = [
+    ...(current ? [{buildNumber: current.buildNumber, marketingVersion: currentVersion}] : []),
+    {buildNumber: appleMax, marketingVersion: family.familyBaseVersion},
+    ...(extra.appleBuilds || []),
+  ]
+  const internal = [googleMax, ...(extra.googleInternal || [])]
   return {
-    apple: {bundleId, current, maxBuildNumber: Math.max(...appleNumbers), buildNumbers: appleNumbers},
+    apple: {
+      bundleId,
+      current,
+      maxBuildNumber: Math.max(...builds.map((build) => build.buildNumber)),
+      builds,
+    },
     google: {
       packageName: bundleId,
       currentVersionCode: current?.buildNumber ?? null,
-      maxVersionCode: Math.max(...googleNumbers),
-      tracks: {
-        internal: [{name: "internal", status: "completed", versionCodes: googleNumbers}],
-        production: current ? [{name: "production", status: "completed", versionCodes: [current.buildNumber]}] : [],
-      },
+      maxVersionCode: Math.max(...internal),
+      tracks: {internal, production: current ? [current.buildNumber] : []},
     },
   }
 }
@@ -56,12 +69,7 @@ function prepare(overrides = {}) {
     betaManifestUrl: "https://github.com/Mentra-Community/MentraOS/releases/download/mentra-builds-v3.1.0/beta.json",
     betaManifestSha256: "b".repeat(64),
     previousManifest,
-    mentraInventory: inventory(
-      "com.mentra.mentra",
-      {marketingVersion: "3.0.0", buildNumber: 300000100},
-      310000060,
-      310000059,
-    ),
+    mentraInventory: inventory("com.mentra.mentra", {marketingVersion: "3.0.0", buildNumber: 300000100}, n(60), n(59)),
     attempt: 1,
     actor: "release-owner",
     createdAt: "2026-08-28T20:00:00.000Z",
@@ -76,8 +84,8 @@ test("freezes selected source and allocates new store build numbers", () => {
   // The lab rebuilds the current 3.0.0 app, so its number follows that family.
   assert.equal(record.coordinates.compatibilityLab.ios.buildNumber, 300000101)
   assert.equal(record.coordinates.compatibilityLab.android.buildNumber, 300000101)
-  assert.equal(productionPlan.native.buildNumber, 310000061)
-  assert.equal(record.coordinates.candidates.mentraApp.ios.buildNumber, 310000061)
+  assert.equal(productionPlan.native.buildNumber, n(61))
+  assert.equal(record.coordinates.candidates.mentraApp.ios.buildNumber, n(61))
   assert.deepEqual(Object.keys(record.coordinates.candidates), ["mentraApp"])
   assert.deepEqual(Object.keys(record.source), ["mentraosCommit"])
   assert.deepEqual(productionPlan.promotion.otaManifest, betaManifest.otaManifest)
@@ -89,12 +97,7 @@ test("freezes selected source and allocates new store build numbers", () => {
 test("first promotion freezes the store-observed public app and skips the compatibility lab", () => {
   const {productionPlan, record} = prepare({
     previousManifest: null,
-    mentraInventory: inventory(
-      "com.mentra.mentra",
-      {marketingVersion: "3.0", buildNumber: 51180073},
-      310000060,
-      310000059,
-    ),
+    mentraInventory: inventory("com.mentra.mentra", {marketingVersion: "3.0", buildNumber: 51180073}, n(60), n(59)),
   })
   assert.equal(record.state, "staging-compatible")
   assert.deepEqual(record.coordinates.currentMentraApp, {
@@ -105,39 +108,44 @@ test("first promotion freezes the store-observed public app and skips the compat
     android: {marketingVersion: "3.0", buildNumber: 51180073},
   })
   assert.equal(record.coordinates.compatibilityLab, null)
-  assert.equal(productionPlan.native.buildNumber, 310000061)
-  assert.equal(record.coordinates.candidates.mentraApp.android.buildNumber, 310000061)
+  assert.equal(productionPlan.native.buildNumber, n(61))
+  assert.equal(record.coordinates.candidates.mentraApp.android.buildNumber, n(61))
 })
 
-test("allocates inside the family window and ignores stray store builds outside it", () => {
-  // A stray 900000001 in App Store Connect and a 3.2.0 dev upload on Play sit
-  // outside the 3.1.0 window and must not move the candidate.
+test("allocates inside the family window from both stores and ignores strays outside it", () => {
+  const current = {marketingVersion: "3.0", buildNumber: 50572313}
+  // A stray 900000001 uploaded under another marketing version and a next-family
+  // upload on Play sit outside the window and must not move the candidate.
   const {productionPlan, record} = prepare({
     previousManifest: null,
-    mentraInventory: inventory(
-      "com.mentra.mentra",
-      {marketingVersion: "3.0", buildNumber: 50572313},
-      310000060,
-      310000059,
-      {appleNumbers: [900000001], googleNumbers: [320000217]},
-    ),
+    mentraInventory: inventory("com.mentra.mentra", current, n(60), n(59), {
+      appleBuilds: [{buildNumber: 900000001, marketingVersion: "3.0"}],
+      googleInternal: [familyBuildNumber("9.9.9", 217)],
+    }),
   })
-  assert.equal(productionPlan.native.buildNumber, 310000061)
-  assert.equal(record.coordinates.candidates.mentraApp.ios.buildNumber, 310000061)
-  assert.equal(record.coordinates.candidates.mentraApp.android.buildNumber, 310000061)
+  assert.equal(productionPlan.native.buildNumber, n(61))
+  assert.equal(record.coordinates.candidates.mentraApp.ios.buildNumber, n(61))
+  assert.equal(record.coordinates.candidates.mentraApp.android.buildNumber, n(61))
 
-  // Numbers already used inside the window are still respected.
+  // Play track codes inside the window count even when App Store Connect is lower.
   const crowded = prepare({
     previousManifest: null,
-    mentraInventory: inventory(
-      "com.mentra.mentra",
-      {marketingVersion: "3.0", buildNumber: 50572313},
-      310000060,
-      310000059,
-      {googleNumbers: [310000221]},
-    ),
+    mentraInventory: inventory("com.mentra.mentra", current, n(60), n(59), {googleInternal: [n(221)]}),
   })
-  assert.equal(crowded.productionPlan.native.buildNumber, 310000222)
+  assert.equal(crowded.productionPlan.native.buildNumber, n(222))
+
+  // A stray upload under the family's own version string above the window
+  // cannot be outranked by anything the window offers: Apple would refuse it.
+  assert.throws(
+    () =>
+      prepare({
+        previousManifest: null,
+        mentraInventory: inventory("com.mentra.mentra", current, n(60), n(59), {
+          appleBuilds: [{buildNumber: 900000001, marketingVersion: family.familyBaseVersion}],
+        }),
+      }),
+    /already holds build 900000001 for version .* above its family window/,
+  )
 
   const strayBeta = {...betaPlan, native: {...betaPlan.native, buildNumber: 900000002}}
   assert.throws(
@@ -146,18 +154,13 @@ test("allocates inside the family window and ignores stray store builds outside 
         betaPlan: strayBeta,
         betaManifest: {...betaManifest, native: strayBeta.native, releasePlanSha256: releaseRecordSha256(strayBeta)},
       }),
-    /outside the 3\.1\.0 family window/,
+    /outside the .* family window/,
   )
   assert.throws(
     () =>
       prepare({
         previousManifest: null,
-        mentraInventory: inventory(
-          "com.mentra.mentra",
-          {marketingVersion: "3.0", buildNumber: 50572313},
-          310099999,
-          310000059,
-        ),
+        mentraInventory: inventory("com.mentra.mentra", current, n(99999), n(59)),
       }),
     /exhausted/,
   )
@@ -166,29 +169,18 @@ test("allocates inside the family window and ignores stray store builds outside 
       prepare({
         previousManifest: null,
         mentraInventory: {
-          ...inventory("com.mentra.mentra", {marketingVersion: "3.0", buildNumber: 50572313}, 310000060, 310000059),
-          google: {
-            ...inventory("com.mentra.mentra", null, 310000060, 310000059).google,
-            currentVersionCode: 310000070,
-          },
+          ...inventory("com.mentra.mentra", current, n(60), n(59)),
+          google: {...inventory("com.mentra.mentra", null, n(60), n(59)).google, currentVersionCode: n(70)},
         },
       }),
     /not above the Google Play production version code/,
   )
-  assert.throws(
-    () =>
-      prepare({
-        mentraInventory: {
-          ...inventory("com.mentra.mentra", {marketingVersion: "3.0.0", buildNumber: 300000100}, 310000060, 310000059),
-          apple: {
-            bundleId: "com.mentra.mentra",
-            current: {marketingVersion: "3.0.0", buildNumber: 300000100},
-            maxBuildNumber: 310000060,
-          },
-        },
-      }),
-    /lists no build numbers/,
-  )
+  const noBuilds = inventory("com.mentra.mentra", {marketingVersion: "3.0.0", buildNumber: 300000100}, n(60), n(59))
+  delete noBuilds.apple.builds
+  assert.throws(() => prepare({mentraInventory: noBuilds}), /lists no builds/)
+  const noTracks = inventory("com.mentra.mentra", {marketingVersion: "3.0.0", buildNumber: 300000100}, n(60), n(59))
+  delete noTracks.google.tracks
+  assert.throws(() => prepare({mentraInventory: noTracks}), /lists no tracks/)
 })
 
 test("first promotion still requires a public app in both stores", () => {
@@ -196,7 +188,7 @@ test("first promotion still requires a public app in both stores", () => {
     () =>
       prepare({
         previousManifest: null,
-        mentraInventory: inventory("com.mentra.mentra", null, 310000060, 310000059),
+        mentraInventory: inventory("com.mentra.mentra", null, n(60), n(59)),
       }),
     /has no current public store release/,
   )
@@ -209,8 +201,8 @@ test("rejects store state that does not match current production provenance", ()
         mentraInventory: inventory(
           "com.mentra.mentra",
           {marketingVersion: "3.0.0", buildNumber: 300000099},
-          310000060,
-          310000059,
+          n(60),
+          n(59),
         ),
       }),
     /do not match the previous production manifest/,

@@ -321,6 +321,9 @@ test("coordinated docs publish only after finalization to the matching channel",
   // the sequence, for the app plan and the ASG client alike.
   assert.match(plan, /--native-build-sequence "\$\{\{ github\.run_number \}\}"/)
   assert.doesNotMatch(coordinator, /310000000|--native-build-number/)
+  const familyChecks = workflow("release-family-checks.yml")
+  assert.match(familyChecks, /--native-build-sequence 1 \\/)
+  assert.doesNotMatch(familyChecks, /310000001|--native-build-number/)
   assert.match(
     workflow("reusable-coordinated-ota.yml"),
     /allocate-asg-version\.mjs \\\n[\s\S]{0,300}--sequence "\$\{\{ github\.run_number \}\}"/,
