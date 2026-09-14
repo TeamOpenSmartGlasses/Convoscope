@@ -60,6 +60,8 @@ public enum ButtonPhotoSize: String {
     }
 }
 
+/// JPEG compression tier for photo uploads. Compression selects encoder quality only; pixel
+/// dimensions come from `PhotoSize`. `heavy` is the legacy spelling of `high`.
 public enum PhotoCompression: String {
     case none
     case low
@@ -69,6 +71,9 @@ public enum PhotoCompression: String {
 
     // Keep the legacy wire spelling for older glasses firmware.
     public var wireValue: String { self == .high ? "heavy" : rawValue }
+
+    /// The tier this value represents once the legacy alias is folded in.
+    public var canonical: PhotoCompression { self == .heavy ? .high : self }
 }
 
 public struct PhotoCaptureDefaults {

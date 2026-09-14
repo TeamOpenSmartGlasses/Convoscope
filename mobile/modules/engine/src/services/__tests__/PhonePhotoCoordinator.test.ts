@@ -167,6 +167,37 @@ describe("PhonePhotoCoordinator", () => {
       expect(requestPhotoNative.mock.calls[0]![0]).toMatchObject({transferMethod: "ble"})
     })
 
+    test("forwards each compression tier to native unchanged", async () => {
+      for (const compress of ["none", "low", "medium", "high"] as const) {
+        requestPhotoNative.mockClear()
+        const coord = new PhonePhotoCoordinator()
+        await coord.takePhoto("com.a", {compress})
+        expect(requestPhotoNative.mock.calls[0]![0]).toMatchObject({compress})
+      }
+    })
+
+    test("defaults compression to none when a miniapp omits it", async () => {
+      const coord = new PhonePhotoCoordinator()
+      await coord.takePhoto("com.a", {size: "high"})
+      expect(requestPhotoNative.mock.calls[0]![0]).toMatchObject({compress: "none"})
+    })
+
+    test("never collapses low or high into a neighbouring tier", async () => {
+      const coord = new PhonePhotoCoordinator()
+      await coord.takePhoto("com.a", {compress: "low"})
+      await coord.takePhoto("com.a", {compress: "high"})
+      const sent = requestPhotoNative.mock.calls.map(call => (call[0] as {compress: string}).compress)
+      expect(sent).toEqual(["low", "high"])
+      expect(sent).not.toContain("medium")
+      expect(sent).not.toContain("heavy")
+    })
+
+    test("keeps compression independent from the size tier", async () => {
+      const coord = new PhonePhotoCoordinator()
+      await coord.takePhoto("com.a", {size: "max", compress: "high"})
+      expect(requestPhotoNative.mock.calls[0]![0]).toMatchObject({size: "max", compress: "high"})
+    })
+
     test("passes a miniapp's forced BLE transfer to the native request", async () => {
       const coord = new PhonePhotoCoordinator()
       await coord.takePhoto("com.a", {transferMethod: "ble"})

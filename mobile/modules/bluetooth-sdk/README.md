@@ -742,4 +742,4 @@ secrets, not in the repository.
 
 The [Mentra Bluetooth SDK Starter Kit](https://github.com/Mentra-Community/Mentra-Bluetooth-SDK-Starter-Kit) includes starter example apps for Android, iOS, and React Native / Expo. The React Native starter demonstrates scan/connect, display, camera photo upload, RTMP/SRT/WebRTC streaming, Wi-Fi/hotspot, microphone PCM, RGB LED, gallery mode, and console event inspection.
 
-BLE JPEG photo compression supports `none` (Q95), `low` (Q88), `medium` (Q78), and `high` (Q60) on updated glasses firmware. `heavy` remains a legacy alias for `high`; both use `heavy` on the wire for older firmware compatibility. Pixel limits are controlled separately by `size`.
+Photo `compress` selects JPEG quality only: `none` (Q95 over BLE; Wi-Fi uploads the capture untouched), `low` (Q88), `medium` (Q78), and `high` (Q60) on updated glasses firmware, on both the BLE and Wi-Fi upload paths. `heavy` remains a legacy alias for `high`; both use `heavy` on the wire for older firmware compatibility. Omitted values default to `none` on every platform. Pixel limits are controlled separately by `size`; compression never changes image dimensions.

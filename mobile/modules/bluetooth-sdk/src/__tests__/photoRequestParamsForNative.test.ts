@@ -19,6 +19,18 @@ describe("photoRequestParamsForNative", () => {
     })
     expect(photoRequestParamsForNative({...baseParams, presend_thumbnail: true, transferMethod: "direct"}).transferMethod).toBe("direct")
   })
+  it("forwards every compression tier verbatim so native picks the wire spelling", () => {
+    for (const compress of ["none", "low", "medium", "high", "heavy"] as const) {
+      expect(photoRequestParamsForNative({...baseParams, compress}).compress).toBe(compress)
+    }
+  })
+
+  it("keeps compression independent of the size tier", () => {
+    const payload = photoRequestParamsForNative({...baseParams, size: "large", compress: "high"})
+    expect(payload.size).toBe("high")
+    expect(payload.compress).toBe("high")
+  })
+
   it("produces only supported native payload keys", () => {
     const payload = photoRequestParamsForNative(baseParams)
     expect(Object.keys(payload).sort()).toEqual(

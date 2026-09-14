@@ -51,6 +51,10 @@ enum class ButtonPhotoSize(val value: String) {
     }
 }
 
+/**
+ * JPEG compression tier for photo uploads. Compression selects encoder quality only; pixel
+ * dimensions come from [PhotoSize]. [HEAVY] is the legacy spelling of [HIGH].
+ */
 enum class PhotoCompression(val value: String) {
     NONE("none"),
     LOW("low"),
@@ -60,6 +64,9 @@ enum class PhotoCompression(val value: String) {
 
     // Keep the legacy wire spelling for older glasses firmware.
     val wireValue: String get() = if (this == HIGH) HEAVY.value else value
+
+    /** The tier this value represents once the legacy alias is folded in. */
+    val canonical: PhotoCompression get() = if (this == HEAVY) HIGH else this
 
     companion object {
         @JvmStatic
@@ -189,7 +196,8 @@ data class PhotoRequest @JvmOverloads constructor(
     val size: PhotoSize,
     val webhookUrl: String,
     val authToken: String? = null,
-    val compress: PhotoCompression = PhotoCompression.MEDIUM,
+    // Omitted compression means "none" on every platform (see camera docs); iOS uses nil -> "none".
+    val compress: PhotoCompression = PhotoCompression.NONE,
     val save: Boolean = false,
     val sound: Boolean = true,
     /** Sensor exposure time for this capture only (ns), or null for auto exposure */

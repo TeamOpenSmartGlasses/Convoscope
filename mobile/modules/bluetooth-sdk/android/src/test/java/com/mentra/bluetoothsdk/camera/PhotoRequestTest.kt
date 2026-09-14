@@ -10,6 +10,52 @@ import org.junit.Test
 
 class PhotoRequestTest {
     @Test
+    fun `compression tiers parse from the bridge map`() {
+        val fields = mapOf("size" to "medium", "webhookUrl" to "https://example.com/upload")
+        assertThat(PhotoRequest.fromMap(fields).compress).isEqualTo(PhotoCompression.NONE)
+        assertThat(PhotoRequest.fromMap(fields + ("compress" to "none")).compress).isEqualTo(PhotoCompression.NONE)
+        assertThat(PhotoRequest.fromMap(fields + ("compress" to "low")).compress).isEqualTo(PhotoCompression.LOW)
+        assertThat(PhotoRequest.fromMap(fields + ("compress" to "medium")).compress).isEqualTo(PhotoCompression.MEDIUM)
+        assertThat(PhotoRequest.fromMap(fields + ("compress" to "high")).compress).isEqualTo(PhotoCompression.HIGH)
+        assertThat(PhotoRequest.fromMap(fields + ("compress" to "heavy")).compress).isEqualTo(PhotoCompression.HEAVY)
+        assertThat(PhotoRequest.fromMap(fields + ("compress" to "ultra")).compress).isEqualTo(PhotoCompression.NONE)
+    }
+
+    @Test
+    fun `high is sent as the legacy heavy wire value and every other tier is sent verbatim`() {
+        assertThat(PhotoCompression.NONE.wireValue).isEqualTo("none")
+        assertThat(PhotoCompression.LOW.wireValue).isEqualTo("low")
+        assertThat(PhotoCompression.MEDIUM.wireValue).isEqualTo("medium")
+        assertThat(PhotoCompression.HIGH.wireValue).isEqualTo("heavy")
+        assertThat(PhotoCompression.HEAVY.wireValue).isEqualTo("heavy")
+        assertThat(PhotoCompression.values().map { it.wireValue }).doesNotContain("high")
+    }
+
+    @Test
+    fun `heavy is the legacy alias for high`() {
+        assertThat(PhotoCompression.HEAVY.canonical).isEqualTo(PhotoCompression.HIGH)
+        assertThat(PhotoCompression.HIGH.canonical).isEqualTo(PhotoCompression.HIGH)
+        assertThat(PhotoCompression.fromValue("heavy").canonical).isEqualTo(PhotoCompression.fromValue("high").canonical)
+        for (tier in listOf(PhotoCompression.NONE, PhotoCompression.LOW, PhotoCompression.MEDIUM)) {
+            assertThat(tier.canonical).isEqualTo(tier)
+        }
+    }
+
+    @Test
+    fun `fromValue returns none for null and unknown values`() {
+        assertThat(PhotoCompression.fromValue(null)).isEqualTo(PhotoCompression.NONE)
+        assertThat(PhotoCompression.fromValue("")).isEqualTo(PhotoCompression.NONE)
+        assertThat(PhotoCompression.fromValue("HIGH")).isEqualTo(PhotoCompression.NONE)
+    }
+
+    @Test
+    fun `constructor defaults compression to none like iOS and the docs`() {
+        val request = PhotoRequest(size = PhotoSize.MEDIUM, webhookUrl = "https://example.com/upload")
+        assertThat(request.compress).isEqualTo(PhotoCompression.NONE)
+        assertThat(request.compress.wireValue).isEqualTo("none")
+    }
+
+    @Test
     fun `thumbnail is opt in and survives request routing copies`() {
         val fields = mapOf("size" to "medium", "webhookUrl" to "https://example.com/upload")
         assertThat(PhotoRequest.fromMap(fields).presendThumbnail).isFalse()
