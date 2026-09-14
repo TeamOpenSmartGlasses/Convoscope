@@ -815,21 +815,7 @@ jobs:
   notify-slack:
     name: Notify release Slack channel
     needs:
-      [
-        plan,
-        cloud-v2,
-        ota,
-        npm,
-        sdk-native,
-        mobile,
-        engine-consumer,
-        starter-kit,
-        example-testflight,
-        example-google-play,
-        finalize,
-        finalize-example,
-        docs,
-      ]
+      [plan, cloud-v2, ota, npm, sdk-native, mobile, engine-consumer, starter-kit, example-testflight, example-google-play, finalize, finalize-example, docs]
     if: always() && github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
