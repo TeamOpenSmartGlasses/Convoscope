@@ -68,6 +68,7 @@ class LocalWhipIngestSource(
 
   private val relay = DecodedTrackRelay(videoListener, pcmListener, stats) { notePromotableFrame() }
   private val firstFrame = FirstFrameGate()
+  private val frameStall = FrameStallGate(INGEST_STALL_SAMPLES)
   private val videoIds = TrackRegistry()
   private val audioIds = TrackRegistry()
   private val audioTracks = CopyOnWriteArrayList<AudioTrack>()
@@ -81,8 +82,14 @@ class LocalWhipIngestSource(
   @Volatile private var attachedVideo: VideoTrack? = null
   @Volatile private var boundUrl: String? = null
   @Volatile private var stateListener: SourceStateListener? = null
+  /** The listener handed to the tombstone thread by [stop]. See [awaitIngestClosed]. */
+  @Volatile private var retiring: WhipIngestServer? = null
   @Volatile private var firstFrameDeadline: Runnable? = null
   @Volatile private var selectedPairTask: Runnable? = null
+  @Volatile private var ingestSampleTask: Runnable? = null
+  private var lastIngestBytes = -1L
+  private var lastIngestFrames = -1L
+  private var lastIngestSampleAtMs = 0L
 
   /**
    * Invalidates callbacks from a peer we are disposing. A negotiation can be mid-gather when the
@@ -148,6 +155,7 @@ class LocalWhipIngestSource(
     boundUrl = null
     cancelFirstFrameDeadline()
     cancelSelectedPairProof()
+    cancelIngestSampling()
     firstFrame.reset()
     detachTracks()
     relay.resetRotationLog()
@@ -158,10 +166,35 @@ class LocalWhipIngestSource(
 
     // stop() leaves the listener answering 410 for a few seconds, so a POST the glasses already
     // sent gets an answer it can act on instead of a reset it would retry.
-    server?.let { runCatching { it.stop() } }
+    server?.let {
+      // Held past the field being cleared: this source is done with it, but the port is not free
+      // until the tombstone thread closes it, and the next call needs that port.
+      retiring = it
+      runCatching { it.stop() }
+    }
     server = null
     disposePeer()
     scopedNetwork?.let { ScopedNetworkChangeDetector.releaseReceiverNetwork(it) }
+  }
+
+  /**
+   * Wait out the tombstone. `false` means the port is still held and the caller must force it.
+   *
+   * Trivially true when nothing was ever bound, so a teardown after a join that failed before the
+   * listener existed does not spend the whole bound discovering there is nothing to wait for.
+   */
+  fun awaitIngestClosed(timeoutMs: Long): Boolean = (retiring ?: server)?.awaitClosed(timeoutMs) ?: true
+
+  /**
+   * Drop the listener now, tombstone or not.
+   *
+   * Only for the barrier's forced path: closing early means an in-flight request from the glasses
+   * gets a connection reset instead of `410`, which is a worse answer — but it is a better outcome
+   * than a next call that cannot bind its port.
+   */
+  fun forceCloseIngest() {
+    (retiring ?: server)?.let { runCatching { it.closeNow() } }
+    retiring = null
   }
 
   /** Terminal teardown for owners that discard this receiver instead of reusing its factory. */
@@ -169,6 +202,7 @@ class LocalWhipIngestSource(
     generation++
     check(server?.closeAndAwait() != false) { "Local WHIP requests are still draining" }
     stop()
+    forceCloseIngest()
     factory?.dispose()
     factory = null
     egl?.release()
@@ -360,6 +394,7 @@ class LocalWhipIngestSource(
     }
 
     armFirstFrame(gen)
+    armIngestSampling(gen)
     return Result.success(local)
   }
 
@@ -370,6 +405,7 @@ class LocalWhipIngestSource(
     generation++
     cancelFirstFrameDeadline()
     cancelSelectedPairProof()
+    cancelIngestSampling()
     detachTracks()
     disposePeer()
     if (state != SourceState.IDLE) transition(SourceState.FAILED, "publisher_terminated")
@@ -623,6 +659,105 @@ class LocalWhipIngestSource(
     selectedPairTask = null
   }
 
+  /**
+   * Sample the glasses→phone leg for as long as this peer lives.
+   *
+   * The ACS side already reports what leaves the phone; without this the two hops are impossible
+   * to tell apart, and "the joined call looked compressed" has two completely different causes —
+   * the glasses encoder sending little, or the phone throttling its own uplink from plenty. Same
+   * 2 s cadence as `acs_bwe_sample` so the two series line up without interpolation.
+   */
+  private fun armIngestSampling(gen: Int) {
+    cancelIngestSampling()
+    lastIngestBytes = -1L
+    lastIngestFrames = -1L
+    lastIngestSampleAtMs = 0L
+    stats.inboundBitrateBps = null
+    frameStall.arm()
+    scheduleIngestSample(gen)
+  }
+
+  private fun scheduleIngestSample(gen: Int) {
+    val task = Runnable {
+      if (gen != generation) return@Runnable
+      sampleIngest(gen)
+      scheduleIngestSample(gen)
+    }
+    ingestSampleTask = task
+    mainHandler.postDelayed(task, INGEST_SAMPLE_INTERVAL_MS)
+  }
+
+  private fun cancelIngestSampling() {
+    ingestSampleTask?.let { mainHandler.removeCallbacks(it) }
+    ingestSampleTask = null
+  }
+
+  private fun sampleIngest(gen: Int) {
+    val peer = pc ?: return
+    val iceState = runCatching { peer.iceConnectionState()?.name?.lowercase() }.getOrNull() ?: "unknown"
+    runCatching {
+      peer.getStats { report ->
+        if (gen != generation) return@getStats
+        val inbound = report.statsMap.values.firstOrNull {
+          it.type == "inbound-rtp" && (it.members["kind"] ?: it.members["mediaType"]) == "video"
+        }
+        val now = android.os.SystemClock.elapsedRealtime()
+        val bytes = (inbound?.members?.get("bytesReceived") as? Number)?.toLong() ?: -1L
+        val frames = (inbound?.members?.get("framesDecoded") as? Number)?.toLong() ?: -1L
+        val elapsedMs = if (lastIngestSampleAtMs == 0L) 0L else now - lastIngestSampleAtMs
+        // Rates need two reads. The first sample reports -1 rather than dividing by the time since
+        // the epoch, which would print a plausible and meaningless number.
+        val bitrate = if (lastIngestBytes < 0 || bytes < lastIngestBytes || elapsedMs <= 0) -1L
+        else (bytes - lastIngestBytes) * 8_000L / elapsedMs
+        val fps = if (lastIngestFrames < 0 || frames < lastIngestFrames || elapsedMs <= 0) -1.0
+        else (frames - lastIngestFrames) * 1000.0 / elapsedMs
+        lastIngestBytes = bytes
+        lastIngestFrames = frames
+        lastIngestSampleAtMs = now
+        // Mirrored onto the shared stats so the ACS side can name this hop's rate inside a
+        // low-bitrate episode. Null rather than -1 there: "no reading yet" must not average in.
+        stats.inboundBitrateBps = if (bitrate >= 0) bitrate else null
+        SoftApTrace.stage(
+          "whip_ingest_sample",
+          "iceState" to iceState,
+          "sourceState" to state.name.lowercase(),
+          "inboundBitrateBps" to bitrate,
+          "inboundFps" to PipelineStats.formatRate(fps),
+          "decodedFps" to (stats.decodedFps?.let { PipelineStats.formatRate(it) } ?: "na"),
+          "bytesReceived" to bytes,
+          "framesDecoded" to frames,
+          "stalledSamples" to frameStall.samples,
+        )
+        noteIngestStall(gen, iceState, fps, frames)
+      }
+    }.onFailure { Log.w(TAG, "SoftAP ingest sample failed", it) }
+  }
+
+  /**
+   * Fail a live session whose decoder has stopped advancing. See [FrameStallGate].
+   *
+   * Terminal on purpose, and not a rebuild: `AcsMeetingSession` suppresses session-level rebuilds
+   * for SoftAP because rebinding would strand the glasses on a port they were never told about.
+   * `FAILED` surfaces to the host as `mediaSource: failed`, which moves the call out of "video
+   * live" and lets the glasses' own WHIP reconnect recover on the unchanged URL.
+   */
+  private fun noteIngestStall(gen: Int, iceState: String, fps: Double, frames: Long) {
+    val verdict = frameStall.sample(
+      live = state == SourceState.LIVE,
+      iceConnected = iceState == "connected",
+      fps = fps,
+    )
+    if (verdict !is FrameStallGate.Verdict.Stalled) return
+    Log.w(TAG, "SoftAP ingest decoded no frames across ${verdict.samples} samples; failing source")
+    SoftApTrace.failure(
+      "ingest_frames_stalled",
+      "samples" to verdict.samples,
+      "intervalMs" to INGEST_SAMPLE_INTERVAL_MS,
+      "framesDecoded" to frames,
+    )
+    if (gen == generation) transition(SourceState.FAILED, "frames_stalled")
+  }
+
   /** Reads the prefix per sample: the phone can lose and rejoin the hotspot mid-call. */
   private fun sampleIcePath(gen: Int, onSample: (IcePathVerdict) -> Unit) {
     val peer = pc ?: return
@@ -741,6 +876,10 @@ class LocalWhipIngestSource(
   private fun notePromotableFrame() {
     if (!firstFrame.onFrame(generation)) return
     cancelFirstFrameDeadline()
+    // Re-armed on every promotion, not just per peer: ICE recovery re-earns LIVE on the same peer
+    // without restarting the sampler, and a gate still holding its last verdict would let the
+    // second freeze of a call go unreported.
+    frameStall.arm()
     SoftApTrace.stage("ingest_first_frame")
     transition(SourceState.LIVE, "first_frame")
   }
@@ -781,5 +920,11 @@ class LocalWhipIngestSource(
 
     /** Long enough that a healthy 15 fps feed cannot show a flat byte counter across the two reads. */
     private const val SELECTED_PAIR_SAMPLE_GAP_MS = 1_200L
+
+    /** Matches the ACS-side `acs_bwe_sample` cadence so the two hops can be read side by side. */
+    private const val INGEST_SAMPLE_INTERVAL_MS = 2_000L
+
+    /** Matches [FIRST_FRAME_TIMEOUT_MS] at the sample cadence: 6s of a frozen decoder. */
+    private const val INGEST_STALL_SAMPLES = 3
   }
 }

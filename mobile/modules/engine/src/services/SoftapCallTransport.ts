@@ -52,6 +52,79 @@ export class SoftapCallError extends Error {
 export const HOTSPOT_BROADCAST_WAIT_MS = 3_000
 
 /**
+ * What the glasses→phone hop is worth at 540p over a hotspot with one client and no contention.
+ *
+ * Not the ACS ceiling: this link is a metre of air between two devices that are already paired,
+ * and the profile's `maxBitrateBps` describes the phone→Teams hop, which crosses the internet.
+ * Sharing one number between them makes the easy hop obey the hard hop's limits.
+ */
+export const GLASSES_PHONE_BITRATE_BPS = 2_500_000
+
+/** Where the encoder starts. High, because the link is good from the first frame. */
+const SOFTAP_START_BITRATE_BPS = 2_000_000
+
+/**
+ * The floor. This is the whole point of the policy.
+ *
+ * WHIP's default has none, so after an ICE interruption WebRTC restarts at its own minimum and
+ * climbs by probing — which is the "potato for a while" the wearer reports. The link did not get
+ * worse; the estimator merely forgot what it knew. A floor says: this hop is a hotspot, not a
+ * congested uplink, and it is never worth less than this.
+ *
+ * That trade is the opposite of Mentra-Call#27's cloud-WHIP review: a 1 Mbps floor on Auto over
+ * LTE turns a weak WAN into freezes. This function is SoftAP-only. Cloud WHIP must not call it.
+ */
+const SOFTAP_MIN_BITRATE_BPS = 1_200_000
+
+/** Field names are the glasses' `WhipStreamConfig` parser's, where `bitrate` means the maximum. */
+export interface SoftapVideoPolicy {
+  width: number
+  height: number
+  fps: number
+  bitrate: number
+  initialBitrateBps: number
+  minBitrateBps: number
+}
+
+/**
+ * The bitrate the glasses are told to hold on the hop to the phone.
+ *
+ * Derived from the ACS profile only for geometry; the three bitrates are this link's own. Any
+ * profile bigger than 540p keeps its own ceiling, because at that point the ACS number is the
+ * more considered one and raising past it only fills a buffer the next hop cannot drain.
+ */
+export function softapVideoPolicy(video: {
+  width: number
+  height: number
+  fps: number
+  maxBitrateBps: number
+}): SoftapVideoPolicy {
+  const isSmall = video.width * video.height <= 960 * 540
+  // 540p and below take the hotspot ceiling, not the ACS cap. Above that the ACS number is the
+  // considered one — but it still cannot sit below the floor. The glasses clamp silently, so
+  // min > max would be applied as something we never asked for.
+  const max = isSmall ? GLASSES_PHONE_BITRATE_BPS : video.maxBitrateBps
+  if (!(max >= SOFTAP_MIN_BITRATE_BPS)) {
+    throw new Error(
+      `incoherent SoftAP video policy: max=${max} is below the hotspot floor ${SOFTAP_MIN_BITRATE_BPS}`,
+    )
+  }
+  const initialBitrateBps = Math.min(SOFTAP_START_BITRATE_BPS, max)
+  const minBitrateBps = Math.min(SOFTAP_MIN_BITRATE_BPS, initialBitrateBps)
+  if (!(minBitrateBps <= initialBitrateBps && initialBitrateBps <= max)) {
+    throw new Error(`incoherent SoftAP video policy: min=${minBitrateBps} start=${initialBitrateBps} max=${max}`)
+  }
+  return {
+    width: video.width,
+    height: video.height,
+    fps: video.fps,
+    bitrate: max,
+    initialBitrateBps,
+    minBitrateBps,
+  }
+}
+
+/**
  * Android's WifiNetworkSpecifier called onUnavailable. The native message lists three causes
  * because the callback does not say which one happened; on the 18:02 Samsung path the SSID was
  * in scan and the join sheet was bypassed — assoc rejected after leaving another AP.
@@ -94,6 +167,15 @@ export interface SoftapProgress {
 export type SoftapStepReporter = (detail: string) => void
 
 export interface SoftapCallDeps {
+  /**
+   * Is this phone's Wi-Fi radio on? Asked before anything is built.
+   *
+   * The station radio is what reaches the glasses, and no app can turn it on since Android 10.
+   * Finding out at `scopedJoin` means the glasses already raised a hotspot for a join that cannot
+   * happen, so the wearer pays a teardown for a condition that was knowable up front. Optional:
+   * a host that cannot answer skips the preflight and relies on the native throw at `scopedJoin`.
+   */
+  isWifiEnabled?(): Promise<boolean>
   /** Enable the glasses hotspot and return its credentials. */
   startHotspot(report?: SoftapStepReporter): Promise<{ssid: string; passphrase: string}>
   /**
@@ -333,6 +415,43 @@ export class SoftapCallTransport {
   }
 
   /**
+   * Refuse the call while the Wi-Fi radio is off, before the glasses are asked for anything.
+   *
+   * Ordered ahead of the hotspot step rather than folded into `scopedJoin` because the cost of
+   * learning late is paid by the glasses: a hotspot raised, a teardown, and a wearer watching a
+   * checklist fail at step 2 for a toggle on their own phone. The native join keeps its own throw
+   * for the radio that goes off in between — this is the explainable path, that one is the racy
+   * backstop.
+   *
+   * A probe that throws is treated as "unknown, carry on": an unanswerable question about the
+   * radio must not be the thing that stops a call the radio would have carried.
+   */
+  private async preflightWifi(): Promise<void> {
+    if (!this.deps.isWifiEnabled) return
+    let enabled: boolean
+    try {
+      enabled = await this.deps.isWifiEnabled()
+    } catch (error) {
+      softapTraceFailure("softap_wifi_preflight_unknown", {
+        reason: error instanceof Error ? error.message : String(error),
+      })
+      return
+    }
+    softapTrace("softap_wifi_preflight", {enabled})
+    if (enabled) return
+    this.setStep("hotspot", {status: "failed", error: "This phone's Wi-Fi is off"})
+    this.emitProgress()
+    // Code in the message as well as on the error: the miniapp classifies on the message today
+    // (the structured code only arrives on the join rejection), and every other SoftAP failure
+    // carries its code the same way.
+    throw new SoftapCallError(
+      "hotspot",
+      "SOFTAP_WIFI_DISABLED",
+      "SOFTAP_WIFI_DISABLED: this phone's Wi-Fi is off, so it cannot reach the glasses.",
+    )
+  }
+
+  /**
    * Runs the sequence. On any failure the partial sequence is torn down before the error is
    * rethrown, so a failed start never leaves a hotspot up or a publisher running.
    */
@@ -368,6 +487,8 @@ export class SoftapCallTransport {
     this.emitProgress()
 
     try {
+      await this.preflightWifi()
+
       await this.step(generation, "hotspot", "HOTSPOT_FAILED", async (report) => {
         report("Asking the glasses to turn on their hotspot")
         const hotspot = await this.deps.startHotspot(report)
@@ -704,10 +825,17 @@ export function createSoftapCallDeps(args: {
   meetingUrl: string
   token: string
   displayName?: string
+  /**
+   * The ACS outgoing profile. Used here only to size the glasses→phone hop; when absent the
+   * glasses keep their WHIP defaults, which is what every pre-policy build did.
+   */
+  video?: {width: number; height: number; fps: number; maxBitrateBps: number}
   /** Resolves when the meeting reports a frame reached ACS; rejects on a failed feed. */
   awaitFirstFrame: () => Promise<void>
   subsystems: {
     setHotspotState: (enabled: boolean) => Promise<{state: string; ssid?: string; password?: string; localIp?: string}>
+    /** Whether this phone's Wi-Fi radio is on. Optional: only Android hosts can answer it. */
+    isWifiEnabled?: () => Promise<boolean>
     joinScopedNetwork: (ssid: string, passphrase: string, gateway?: string) => Promise<string | undefined>
     leaveScopedNetwork: () => Promise<void>
     joinMeeting: (
@@ -725,7 +853,13 @@ export function createSoftapCallDeps(args: {
     ingestUrl: () => string | null
     startPublishing: (
       packageName: string,
-      options: {streamUrl: string; ice: {stun: string}; traceId: string; captureAudio?: boolean},
+      options: {
+        streamUrl: string
+        ice: {stun: string}
+        traceId: string
+        captureAudio?: boolean
+        video?: SoftapVideoPolicy
+      },
     ) => Promise<unknown>
     stopPublishing: (packageName: string) => Promise<void>
     /**
@@ -769,6 +903,7 @@ export function createSoftapCallDeps(args: {
   const hotspotBroadcastWaitMs = args.hotspotBroadcastWaitMs ?? HOTSPOT_BROADCAST_WAIT_MS
   let gatewayAddress: string | undefined
   return {
+    isWifiEnabled: subsystems.isWifiEnabled ? () => subsystems.isWifiEnabled!() : undefined,
     startHotspot: async (report) => {
       const enable = async () => {
         const status = await subsystems.setHotspotState(true)
@@ -914,6 +1049,20 @@ export function createSoftapCallDeps(args: {
           ? "Publishing video only; the wearer's voice comes over Bluetooth LC3"
           : "Publishing video and the glasses microphone",
       )
+      const policy = args.video ? softapVideoPolicy(args.video) : undefined
+      if (policy) {
+        // Traced at send time rather than read back: the glasses log what they applied in
+        // `applyBitrateConstraints`, and the pair of lines is what shows a clamp we did not
+        // intend. One line alone can only ever show agreement with itself.
+        softapTrace("softap_video_policy", {
+          width: policy.width,
+          height: policy.height,
+          fps: policy.fps,
+          min: policy.minBitrateBps,
+          start: policy.initialBitrateBps,
+          max: policy.bitrate,
+        })
+      }
       try {
         await subsystems.startPublishing(packageName, {
           streamUrl: ingestUrl,
@@ -922,6 +1071,7 @@ export function createSoftapCallDeps(args: {
           ice: {stun: ""},
           traceId,
           captureAudio: !lc3Uplink,
+          ...(policy ? {video: policy} : {}),
         })
       } finally {
         unsubscribe?.()

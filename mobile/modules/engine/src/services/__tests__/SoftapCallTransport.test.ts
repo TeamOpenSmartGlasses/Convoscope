@@ -6,6 +6,7 @@ import {
   SoftapCallError,
   SoftapCallTransport,
   SoftapEndNotSupportedError,
+  softapVideoPolicy,
   type SoftapCallDeps,
   type SoftapProgress,
   type SoftapStep,
@@ -719,6 +720,61 @@ describe("SoftapCallTransport leave during every phase", () => {
   })
 })
 
+describe("SoftapCallTransport Wi-Fi preflight", () => {
+  /**
+   * The point of the preflight is what does *not* happen: the glasses are never asked to raise a
+   * hotspot for a join the phone's radio cannot complete. Asserting on the absence of
+   * `startHotspot` is therefore the whole test — a failure that merely arrives earlier would
+   * still cost the wearer a hotspot and a teardown.
+   */
+  test("a disabled radio fails the call before the glasses are asked for anything", async () => {
+    const {calls, transport} = recordingDeps({isWifiEnabled: async () => false})
+
+    const error = (await transport.start().catch((thrown) => thrown)) as SoftapCallError
+
+    expect(error).toBeInstanceOf(SoftapCallError)
+    expect(error.code).toBe("SOFTAP_WIFI_DISABLED")
+    expect(error.step).toBe("hotspot")
+    expect(calls).toEqual([])
+  })
+
+  test("an enabled radio runs the normal sequence", async () => {
+    const {calls, transport} = recordingDeps({isWifiEnabled: async () => true})
+
+    await transport.start()
+
+    expect(calls).toEqual(START_ORDER)
+  })
+
+  /**
+   * A host that cannot answer must not be able to stop a call. iOS has no such API, and a native
+   * that predates the function throws through the bridge — both have to read as "carry on", with
+   * the native throw at `scopedJoin` left as the backstop.
+   */
+  test("a probe that throws is not treated as a disabled radio", async () => {
+    const {calls, transport} = recordingDeps({
+      isWifiEnabled: async () => {
+        throw new Error("MentraAcsMeeting.isWifiEnabled is not a function")
+      },
+    })
+
+    await transport.start()
+
+    expect(calls).toEqual(START_ORDER)
+  })
+
+  test("the failed preflight marks the hotspot row so the checklist names it", async () => {
+    const snapshots: SoftapProgress[] = []
+    const {transport} = recordingDeps({isWifiEnabled: async () => false})
+
+    await transport.start({onProgress: (progress) => snapshots.push(progress)}).catch(() => undefined)
+
+    const hotspot = snapshots.at(-1)?.steps.find((step) => step.step === "hotspot")
+    expect(hotspot?.status).toBe("failed")
+    expect(snapshots.at(-1)?.phase).toBe("failed")
+  })
+})
+
 describe("SoftapCallTransport stop waits for the step in flight", () => {
   /**
    * The restart race, at the layer that can close it.
@@ -1091,7 +1147,10 @@ describe("createSoftapCallDeps", () => {
 
   function deps(
     overrides: Partial<ReturnType<typeof subsystems>["subsystems"]> = {},
-    options: {hotspotBroadcastWaitMs?: number} = {},
+    options: {
+      hotspotBroadcastWaitMs?: number
+      video?: {width: number; height: number; fps: number; maxBitrateBps: number}
+    } = {},
   ) {
     const harness = subsystems()
     return {
@@ -1101,12 +1160,62 @@ describe("createSoftapCallDeps", () => {
         meetingUrl: "https://teams.microsoft.com/l/meetup-join/x",
         token: "tok",
         displayName: "Mentra Live",
+        video: options.video,
         awaitFirstFrame: async () => {},
         subsystems: {...harness.subsystems, ...overrides},
         hotspotBroadcastWaitMs: options.hotspotBroadcastWaitMs,
       }),
     }
   }
+
+  test("the glasses are given a bitrate floor and a high start on the hop to the phone", async () => {
+    const harness = deps({}, {video: {width: 960, height: 540, fps: 15, maxBitrateBps: 1_500_000}})
+
+    await harness.deps.startPublishing({ingestUrl: "http://192.168.43.20:8790/whip", traceId: "t"})
+
+    const published = harness.calls.find(([name]) => name === "startPublishing")?.[1] as {
+      options: {video?: Record<string, number>}
+    }
+    // The ACS profile's 1.5 Mbps describes the phone→Teams hop. This one is a metre of air, so
+    // it gets the hotspot ceiling instead of inheriting the internet hop's limit.
+    expect(published.options.video).toEqual({
+      width: 960,
+      height: 540,
+      fps: 15,
+      bitrate: 2_500_000,
+      initialBitrateBps: 2_000_000,
+      minBitrateBps: 1_200_000,
+    })
+  })
+
+  test("no profile means the glasses keep their own WHIP defaults", async () => {
+    const harness = deps()
+
+    await harness.deps.startPublishing({ingestUrl: "http://192.168.43.20:8790/whip", traceId: "t"})
+
+    const published = harness.calls.find(([name]) => name === "startPublishing")?.[1] as {
+      options: {video?: unknown}
+    }
+    expect(published.options.video).toBeUndefined()
+  })
+
+  test("a profile above 540p keeps its own ceiling", () => {
+    // Past 540p the ACS number is the considered one: raising above it only fills a buffer the
+    // phone→Teams hop cannot drain, which shows up as latency rather than as sharpness.
+    expect(softapVideoPolicy({width: 1280, height: 720, fps: 15, maxBitrateBps: 3_000_000})).toMatchObject({
+      bitrate: 3_000_000,
+      initialBitrateBps: 2_000_000,
+      minBitrateBps: 1_200_000,
+    })
+  })
+
+  test("a ceiling below the floor is refused rather than silently collapsed", () => {
+    // 720p inherits the ACS cap. If that cap is below the hotspot floor, collapsing min to match
+    // it would delete the floor and still look like a policy we meant to send.
+    expect(() => softapVideoPolicy({width: 1280, height: 720, fps: 15, maxBitrateBps: 800_000})).toThrow(
+      /below the hotspot floor/,
+    )
+  })
 
   test("the meeting is asked for a softap source carrying the hotspot credentials", async () => {
     const harness = deps()
