@@ -1,4 +1,5 @@
 import assert from "node:assert/strict"
+import {createHash} from "node:crypto"
 import {mkdtempSync, writeFileSync} from "node:fs"
 import {tmpdir} from "node:os"
 import path from "node:path"
@@ -81,4 +82,43 @@ test("records and merges exact mobile store and downloadable artifacts", () => {
   const publicMerged = mergeMobileRecords({plan: publicPlan, android, ios: publicIos})
   assert.equal(publicMerged.publications.mentraos["app-store-connect"].testflight.status, "skipped")
   assert.doesNotThrow(() => createIosRecord({...publicInput, storeStatus: "built"}))
+})
+
+test("Internal App Sharing publications carry the Play download link for the exact AAB", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "coordinated-mobile-records-sharing-"))
+  const apk = path.join(root, "app.apk")
+  const aab = path.join(root, "app.aab")
+  writeFileSync(apk, "apk")
+  writeFileSync(aab, "aab")
+  const base = "https://github.com/Mentra-Community/MentraOS/releases/download/mentra-builds-v3.1.0"
+  const input = {
+    plan,
+    apk,
+    apkUrl: `${base}/${plan.artifactNames.androidApp}`,
+    aab,
+    aabUrl: `${base}/${plan.artifactNames.androidStoreApp}`,
+    playTrack: "internal-app-sharing",
+    storeStatus: "published",
+    provenanceUrl: "https://github.com/Mentra-Community/MentraOS/actions/runs/123",
+  }
+  const aabSha256 = createHash("sha256").update("aab").digest("hex")
+  const internalSharing = {
+    downloadUrl: "https://play.google.com/apps/test/com.mentra.mentra/42",
+    sha256: aabSha256,
+    certificateFingerprint: "AA:BB",
+  }
+  const record = createAndroidRecord({...input, internalSharing})
+  assert.equal(
+    record.publications.mentraos["google-play"].coordinate,
+    "com.mentra.mentra:310000057:internal-app-sharing",
+  )
+  assert.equal(record.publications.mentraos["google-play"].url, internalSharing.downloadUrl)
+  assert.throws(() => createAndroidRecord(input), /does not match the built AAB/)
+  assert.throws(
+    () => createAndroidRecord({...input, internalSharing: {...internalSharing, sha256: "0".repeat(64)}}),
+    /does not match the built AAB/,
+  )
+  assert.throws(() => createAndroidRecord({...input, playTrack: "production", internalSharing}), /does not belong/)
+  const dryRun = createAndroidRecord({...input, storeStatus: "built"})
+  assert.equal(dryRun.publications.mentraos["google-play"].url, "https://play.google.com/console/")
 })
