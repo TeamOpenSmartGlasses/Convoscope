@@ -17,6 +17,7 @@ const methods = [
   "runSoftapAttempt",
   "retireSoftapAttempt",
   "teardownSoftapAttempt",
+  "setGlassesHotspotState",
   "settleSoftapTeardown",
   "forceSoftapCleanup",
   "emitSoftapProgress",
@@ -153,6 +154,7 @@ function buildFixture(gates: {ingestClosed?: boolean; hotspot?: "disabled" | "en
   const host = new Host()
   host.softapAttemptSeq = 0
   host.softapCleanupError = null
+  host.glassesHotspotCommand = Promise.resolve()
   host.narrateSoftapPreflight = () => {}
   const old = host.createSoftapAttempt("com.mentra.call")
   old.ownsResources = true
@@ -279,6 +281,15 @@ describe("SoftAP teardown barrier", () => {
     expect(f.hotspotCommands()).toEqual([false, false])
     expect(f.host.softapCleanupError).toContain("glasses hotspot off")
     expect(await f.join()).toContain("Previous call cleanup failed")
+  })
+
+  test("overlapping hotspot disables wait their turn instead of failing cleanup", async () => {
+    const f = fixture()
+
+    await Promise.all([f.host.setGlassesHotspotState(false), f.host.setGlassesHotspotState(false)])
+
+    expect(f.hotspotCommands()).toEqual([false, false])
+    expect(f.host.softapCleanupError).toBeNull()
   })
 
   test("a hotspot that answers 'enabled' is a failure, not an acknowledgement", async () => {

@@ -497,6 +497,13 @@ class LocalMiniappRuntime {
    * would not turn off is precisely what makes the next call fail somewhere far less legible.
    */
   private softapCleanupError: string | null = null
+  /**
+   * SoftAP teardown disables the glasses hotspot from the transport and again
+   * from the host barrier. Native used to throw `request_in_flight` on the
+   * second call, which was recorded as a cleanup failure and refused the next
+   * join. One queue so those overlapping disables wait their turn.
+   */
+  private glassesHotspotCommand: Promise<unknown> = Promise.resolve()
 
   /** Connected miniapps keyed by packageName. */
   private connectedApps: Map<string, ConnectedMiniapp> = new Map()
@@ -4084,7 +4091,7 @@ class LocalMiniappRuntime {
         awaitFirstFrame: () => acsMeetingService.waitForFirstFrame(SOFTAP_FIRST_FRAME_MS),
         subsystems: {
           setHotspotState: async (enabled) => {
-            const status = await BluetoothSdk.setHotspotState(enabled)
+            const status = await this.setGlassesHotspotState(enabled)
             if (status.state === "enabled") {
               return {state: status.state, ssid: status.ssid, password: status.password, localIp: status.localIp}
             }
@@ -4452,6 +4459,18 @@ class LocalMiniappRuntime {
     if (endFailure) throw endFailure
   }
 
+  private setGlassesHotspotState(enabled: boolean) {
+    const run = this.glassesHotspotCommand.then(
+      () => BluetoothSdk.setHotspotState(enabled),
+      () => BluetoothSdk.setHotspotState(enabled),
+    )
+    this.glassesHotspotCommand = run.then(
+      () => undefined,
+      () => undefined,
+    )
+    return run
+  }
+
   /**
    * The last two gates, and the point where a timeout stops being treated as consent.
    *
@@ -4494,7 +4513,7 @@ class LocalMiniappRuntime {
       // it again after the transport's own stop costs nothing and is the only way to get an ack
       // that is bound to a deadline we chose.
       const status = await withTimeout(
-        BluetoothSdk.setHotspotState(false),
+        this.setGlassesHotspotState(false),
         SOFTAP_HOTSPOT_OFF_ACK_MS,
         "hotspot_off_ack_timeout",
       )
@@ -4553,7 +4572,7 @@ class LocalMiniappRuntime {
     if (!gates.hotspotOff) {
       try {
         const status = await withTimeout(
-          BluetoothSdk.setHotspotState(false),
+          this.setGlassesHotspotState(false),
           SOFTAP_HOTSPOT_OFF_ACK_MS,
           "hotspot_off_ack_timeout",
         )
