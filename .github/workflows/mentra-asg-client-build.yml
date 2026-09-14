@@ -239,7 +239,11 @@ jobs:
           distribution: "temurin"
 
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v2
+        uses: android-actions/setup-android@v3
+        with:
+          # The retired `tools` package (the action's default) is no longer a
+          # valid download; name what the build needs, as the app build does.
+          packages: platform-tools build-tools;36.0.0 platforms;android-36
 
       - name: Setup environment
         working-directory: ./asg_client
@@ -250,9 +254,11 @@ jobs:
       - name: Pin the ASG version code
         # asg_client/app/build.gradle treats an unpinned build as a development
         # build: its versionName gets a "-dev" suffix that opts the glasses out
-        # of OTA. CI pins the same time-derived code the mobile app uses
-        # (mobile/scripts/build-number.mjs), so the APK and the OTA manifest
-        # written below agree and the build is OTA-installable.
+        # of OTA. CI pins the code the mobile app derives for this commit
+        # (mobile/scripts/build-number.mjs: the family's non-release band from
+        # the HEAD committer time), so the APK, the app built for the same PR
+        # head and the OTA manifest written below agree, and the build is
+        # OTA-installable above every release of the family.
         run: |
           set -euo pipefail
           code=$(node --input-type=module -e "import('./mobile/scripts/build-number.mjs').then(m => console.log(m.getBuildNumber()))")
