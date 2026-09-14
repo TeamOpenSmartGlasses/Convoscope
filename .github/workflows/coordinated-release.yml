@@ -121,6 +121,33 @@ jobs:
       - name: Verify generated changelog catalogs
         run: node .github/scripts/generate-changelog-catalog.mjs --check
 
+      # One build number per run for the app and (when rebuilt) the ASG client:
+      # the next free sequence of the family above everything the family's
+      # build container already records. A rerun keeps its restored number.
+      - name: Allocate the family build number
+        id: family-number
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [[ "${{ steps.restore-plan.outputs.restored }}" == "true" ]]; then
+            echo "build_number=$(jq -er .native.buildNumber release-plan.json)" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          base_version=$(node -e 'import("./.github/scripts/release-family.mjs").then((m) => console.log(m.loadReleaseFamily().familyBaseVersion))')
+          tag="mentra-builds-v$base_version"
+          assets='[]'
+          if release=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/$tag" 2>/dev/null); then
+            release_id=$(jq -er .id <<< "$release")
+            assets=$(gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/releases/$release_id/assets?per_page=100" | jq 'add // []')
+          fi
+          printf '%s\n' "$assets" > family-container-assets.json
+          node .github/scripts/allocate-family-build-sequence.mjs allocate \
+            --assets family-container-assets.json \
+            --base-version "$base_version" \
+            --output family-build-number.json
+          echo "build_number=$(jq -er .buildNumber family-build-number.json)" >> "$GITHUB_OUTPUT"
+
       - name: Create deterministic release plan
         run: |
           set -euo pipefail
@@ -133,7 +160,7 @@ jobs:
             --branch "${{ github.ref_name }}" \
             --sequence "${{ github.run_number }}" \
             --source-commit "${{ github.sha }}" \
-            --native-build-sequence "${{ github.run_number }}" \
+            --native-build-number "${{ steps.family-number.outputs.build_number }}" \
             --ota-inputs ota-release-inputs.json \
             --require-version-mirrors true \
             --public-beta-testflight true \
@@ -147,7 +174,7 @@ jobs:
             --branch "${{ github.ref_name }}" \
             --sequence "${{ github.run_number }}" \
             --source-commit "${{ github.sha }}" \
-            --native-build-sequence "${{ github.run_number }}" \
+            --native-build-number "${{ steps.family-number.outputs.build_number }}" \
             --ota-inputs ota-release-inputs.json \
             --require-version-mirrors true \
             --public-beta-testflight true \
@@ -224,6 +251,28 @@ jobs:
             exit 1
           fi
           echo "release_id=$release_id" >> "$GITHUB_OUTPUT"
+
+      # Recorded before any build starts, so a run that fails halfway never
+      # gives its number away; the marker is deterministic, so a rerun
+      # republishes identical bytes.
+      - name: Record the family build number in the release container
+        if: steps.release.outputs.dry_run != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          base_version=$(jq -er .familyBaseVersion release-plan.json)
+          build_number=$(jq -er .native.buildNumber release-plan.json)
+          node .github/scripts/allocate-family-build-sequence.mjs marker \
+            --base-version "$base_version" \
+            --build-number "$build_number" \
+            --output-dir family-build-number
+          name="mentra-build-number-$build_number.json"
+          node .github/scripts/publish-immutable-release-asset.mjs \
+            --file "family-build-number/$name" \
+            --name "$name" \
+            --release-id "${{ steps.container.outputs.release_id }}" \
+            --repository "$GITHUB_REPOSITORY"
 
       - uses: actions/upload-artifact@v4
         if: steps.restore-plan.outputs.restored != 'true'

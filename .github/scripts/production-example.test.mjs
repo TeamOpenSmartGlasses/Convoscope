@@ -33,69 +33,29 @@ const betaManifest = {
   otaManifest: {url: "https://example.com/mentra-live-ota-3.1.0-beta.212.json", sha256: "d".repeat(64)},
 }
 const n = (sequence) => familyBuildNumber(family.familyBaseVersion, sequence)
-const apple = (maxBuildNumber, marketingVersion = null) => ({
-  bundleId: EXAMPLE_BUNDLE_ID,
-  current: null,
-  maxBuildNumber,
-  builds: [{buildNumber: maxBuildNumber, marketingVersion}],
-})
-const google = (maxVersionCode) => ({
-  packageName: EXAMPLE_BUNDLE_ID,
-  currentVersionCode: null,
-  maxVersionCode,
-  tracks: {internal: [maxVersionCode]},
-})
 
-test("allocates one example build number above both stores and the promoted beta", () => {
-  assert.equal(
-    allocateExampleBuildNumber({betaPlan, appleInventory: apple(n(200)), googleInventory: google(1)}),
-    n(213),
-  )
-  assert.equal(
-    allocateExampleBuildNumber({betaPlan, appleInventory: apple(n(300)), googleInventory: google(2)}),
-    n(301),
-  )
-  assert.equal(
-    allocateExampleBuildNumber({betaPlan, appleInventory: apple(1), googleInventory: google(n(400))}),
-    n(401),
-  )
-  assert.equal(allocateExampleBuildNumber({betaPlan, appleInventory: apple(1)}), n(213))
-  // Store numbers outside the family window (a stray upload under another
-  // version, another family's Play code) do not count; the same version
-  // string above the window is a hard stop.
+const marker = (sequence) => ({name: `mentra-build-number-${n(sequence)}.json`})
+
+test("allocates the example's build number as the family's next sequence", () => {
+  assert.equal(allocateExampleBuildNumber({betaPlan, familyAssets: [marker(212)]}), n(213))
+  assert.equal(allocateExampleBuildNumber({betaPlan, familyAssets: [marker(212), marker(300)]}), n(301))
   assert.equal(
     allocateExampleBuildNumber({
       betaPlan,
-      appleInventory: apple(900000001, "1.0.0"),
-      googleInventory: google(familyBuildNumber("9.9.9", 217)),
+      familyAssets: [marker(212), {name: `mentra-live-asg-${n(400)}-${"a".repeat(64)}.apk`}],
     }),
-    n(213),
+    n(401),
   )
-  assert.throws(
-    () => allocateExampleBuildNumber({betaPlan, appleInventory: apple(900000001, family.familyBaseVersion)}),
-    /above its family window/,
-  )
+  assert.throws(() => allocateExampleBuildNumber({betaPlan, familyAssets: []}), /does not record the selected beta/)
   assert.throws(
     () =>
       allocateExampleBuildNumber({
         betaPlan: {...betaPlan, native: {...betaPlan.native, buildNumber: 900000002}},
-        appleInventory: apple(1),
+        familyAssets: [marker(212)],
       }),
     /outside the family window/,
   )
-  assert.throws(
-    () => allocateExampleBuildNumber({betaPlan, appleInventory: {bundleId: "com.mentra.mentra", maxBuildNumber: 1}}),
-    /does not identify/,
-  )
-  assert.throws(
-    () =>
-      allocateExampleBuildNumber({
-        betaPlan,
-        appleInventory: apple(1),
-        googleInventory: {packageName: "other", maxVersionCode: 1},
-      }),
-    /does not identify/,
-  )
+  assert.throws(() => allocateExampleBuildNumber({betaPlan, familyAssets: [marker(2999)]}), /exhausted/)
 })
 
 test("freezes a production example plan keyed on the promoted beta with the allocated build number", () => {

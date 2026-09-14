@@ -193,6 +193,32 @@ jobs:
             --mentra-inventory promotion-input/stores/mentra-inventory.json \
             --github-output "$GITHUB_OUTPUT"
 
+      # Production candidates take the next sequence of their family from the
+      # family's build container, like every coordinated run; the compatibility
+      # lab takes the next sequence of the current app's family.
+      - name: Read the family build containers
+        id: family
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BETA_TAG: ${{ steps.identity.outputs.beta_tag }}
+          PREVIOUS_FOUND: ${{ steps.previous.outputs.found }}
+        run: |
+          set -euo pipefail
+          mkdir -p promotion-input/family
+          release_id=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/$BETA_TAG" --jq .id)
+          gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/releases/$release_id/assets?per_page=100" \
+            | jq 'add // []' > promotion-input/family/assets.json
+          echo "release_id=$release_id" >> "$GITHUB_OUTPUT"
+          if [[ "$PREVIOUS_FOUND" == "true" ]]; then
+            current_version=$(jq -er .familyBaseVersion promotion-input/current/release-plan.json)
+            current_tag="mentra-builds-v$current_version"
+            current_id=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/$current_tag" --jq .id)
+            gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/releases/$current_id/assets?per_page=100" \
+              | jq 'add // []' > promotion-input/family/current-assets.json
+            echo "current_version=$current_version" >> "$GITHUB_OUTPUT"
+            echo "current_release_id=$current_id" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Allocate append-only promotion container
         id: container
         env:
@@ -223,6 +249,7 @@ jobs:
             previous=(
               --previous-manifest promotion-input/current/release-manifest.json
               --previous-manifest-url "$PREVIOUS_MANIFEST_URL"
+              --current-family-assets promotion-input/family/current-assets.json
             )
           fi
           mkdir -p promotion-output
@@ -232,6 +259,8 @@ jobs:
             --beta-manifest-url "$beta_manifest_url" \
             "${previous[@]}" \
             --mentra-inventory promotion-input/stores/mentra-inventory.json \
+            --family-assets promotion-input/family/assets.json \
+            --marker-directory promotion-output/family-build-numbers \
             --attempt "${{ steps.container.outputs.attempt }}" \
             --actor "$GITHUB_ACTOR" \
             --created-at "$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" \
@@ -241,6 +270,32 @@ jobs:
           record=$(find promotion-output -maxdepth 1 -name 'production-promotion-*.json' -print -quit)
           test -n "$record"
           echo "record=$record" >> "$GITHUB_OUTPUT"
+
+      # Recorded in the family containers before anything is built, so no later
+      # coordinated run or attempt can take the same numbers.
+      - name: Record the allocated build numbers in the family containers
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_IDENTITY: ${{ steps.identity.outputs.release_identity }}
+          FAMILY_RELEASE_ID: ${{ steps.family.outputs.release_id }}
+          CURRENT_VERSION: ${{ steps.family.outputs.current_version }}
+          CURRENT_RELEASE_ID: ${{ steps.family.outputs.current_release_id }}
+        run: |
+          set -euo pipefail
+          for marker in promotion-output/family-build-numbers/"$RELEASE_IDENTITY"/mentra-build-number-*.json; do
+            name=$(basename "$marker")
+            node .github/scripts/publish-immutable-release-asset.mjs \
+              --file "promotion-output/family-build-numbers/$RELEASE_IDENTITY/$name" --name "$name" \
+              --release-id "$FAMILY_RELEASE_ID" --repository "$GITHUB_REPOSITORY"
+          done
+          if [[ -n "$CURRENT_VERSION" ]]; then
+            for marker in promotion-output/family-build-numbers/"$CURRENT_VERSION"/mentra-build-number-*.json; do
+              name=$(basename "$marker")
+              node .github/scripts/publish-immutable-release-asset.mjs \
+                --file "promotion-output/family-build-numbers/$CURRENT_VERSION/$name" --name "$name" \
+                --release-id "$CURRENT_RELEASE_ID" --repository "$GITHUB_REPOSITORY"
+            done
+          fi
 
       - name: Publish immutable preparation evidence
         env:

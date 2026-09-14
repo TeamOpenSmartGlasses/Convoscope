@@ -12,7 +12,7 @@ import {
   releaseRecordSha256,
   serializeReleaseRecord,
 } from "./release-family.mjs"
-import {allocateStoreBuildNumber, appleBuilds, googleVersionCodes} from "./store-build-numbers.mjs"
+import {allocateFamilyBuildNumber, familyBuildNumberMarker} from "./allocate-family-build-sequence.mjs"
 
 const COMMIT_PATTERN = /^[0-9a-f]{40}$/
 
@@ -30,8 +30,6 @@ function validateInventory(inventory, {bundleId, allowNoCurrent}) {
   if (inventory.google?.packageName !== bundleId) throw new Error(`Google inventory does not identify ${bundleId}`)
   requireInteger(inventory.apple.maxBuildNumber, `${bundleId} Apple maxBuildNumber`)
   requireInteger(inventory.google.maxVersionCode, `${bundleId} Google maxVersionCode`)
-  appleBuilds(inventory.apple, `${bundleId} Apple inventory`)
-  googleVersionCodes(inventory.google, `${bundleId} Google inventory`)
   if (!allowNoCurrent && (!inventory.apple.current || !Number.isSafeInteger(inventory.google.currentVersionCode))) {
     throw new Error(`${bundleId} has no current public store release`)
   }
@@ -109,6 +107,8 @@ export function prepareProductionPromotion({
   betaManifestSha256,
   previousManifest,
   mentraInventory,
+  familyAssets,
+  currentFamilyAssets = null,
   attempt,
   actor,
   createdAt,
@@ -122,23 +122,37 @@ export function prepareProductionPromotion({
       `Selected beta build number ${betaPlan.native.buildNumber} is outside the ${family.familyBaseVersion} family window`,
     )
   }
-  const mentraBuildNumber = allocateStoreBuildNumber({
-    marketingVersion: family.familyBaseVersion,
-    apple: mentraInventory.apple,
-    google: mentraInventory.google,
-    atLeast: [betaPlan.native.buildNumber],
-  })
-  // The compatibility lab rebuilds the current public app, so its number lives
-  // in that app's own family window, above what the stores hold there.
+  // The candidate takes the next family sequence, exactly like a coordinated
+  // run: the next free number above everything the family's build container
+  // already records (earlier runs' markers and ASG client pairs).
+  const candidate = allocateFamilyBuildNumber({assets: familyAssets, baseVersion: family.familyBaseVersion})
+  const mentraBuildNumber = candidate.buildNumber
+  if (mentraBuildNumber <= betaPlan.native.buildNumber) {
+    throw new Error(
+      `Family container for ${family.familyBaseVersion} does not record the selected beta build ${betaPlan.native.buildNumber}`,
+    )
+  }
+  // The compatibility lab rebuilds the current public app, so its number is
+  // the next sequence of that app's own family, from that family's container.
   const hasCompatibilityLab = currentMentraApp.provenance === "coordinated"
-  const compatibilityLabBuildNumber = hasCompatibilityLab
-    ? allocateStoreBuildNumber({
-        marketingVersion: currentMentraApp.ios.marketingVersion,
-        apple: mentraInventory.apple,
-        google: mentraInventory.google,
-        atLeast: [currentMentraApp.ios.buildNumber, currentMentraApp.android.buildNumber],
-      })
-    : null
+  let compatibilityLab = null
+  if (hasCompatibilityLab) {
+    if (!Array.isArray(currentFamilyAssets)) {
+      throw new Error(`The build container of the current family ${currentMentraApp.ios.marketingVersion} is required`)
+    }
+    compatibilityLab = allocateFamilyBuildNumber({
+      assets: currentFamilyAssets,
+      baseVersion: currentMentraApp.ios.marketingVersion,
+    })
+    if (
+      compatibilityLab.buildNumber <= Math.max(currentMentraApp.ios.buildNumber, currentMentraApp.android.buildNumber)
+    ) {
+      throw new Error(
+        `Family container for ${currentMentraApp.ios.marketingVersion} does not record the current public build`,
+      )
+    }
+  }
+  const compatibilityLabBuildNumber = compatibilityLab?.buildNumber ?? null
   // Google Play only publishes a production release above the one it serves.
   if (mentraBuildNumber <= mentraInventory.google.currentVersionCode) {
     throw new Error(
@@ -198,7 +212,24 @@ export function prepareProductionPromotion({
       },
     ],
   })
-  return {productionPlan, record}
+  const markers = [
+    {
+      containerBaseVersion: family.familyBaseVersion,
+      marker: familyBuildNumberMarker({baseVersion: family.familyBaseVersion, buildNumber: mentraBuildNumber}),
+    },
+    ...(compatibilityLab
+      ? [
+          {
+            containerBaseVersion: currentMentraApp.ios.marketingVersion,
+            marker: familyBuildNumberMarker({
+              baseVersion: currentMentraApp.ios.marketingVersion,
+              buildNumber: compatibilityLab.buildNumber,
+            }),
+          },
+        ]
+      : []),
+  ]
+  return {productionPlan, record, markers}
 }
 
 function parseArgs(args) {
@@ -232,6 +263,8 @@ function main() {
     betaManifestSha256: sha256File(betaManifestPath),
     previousManifest,
     mentraInventory: readJson(args["mentra-inventory"]),
+    familyAssets: readJson(args["family-assets"]),
+    currentFamilyAssets: args["current-family-assets"] ? readJson(args["current-family-assets"]) : null,
     attempt: Number(args.attempt),
     actor: args.actor,
     createdAt: args["created-at"],
@@ -242,6 +275,17 @@ function main() {
   const recordFile = path.join(recordDirectory, promotionAssetName(result.record))
   mkdirSync(recordDirectory, {recursive: true})
   writeFileSync(recordFile, serializeReleaseRecord(result.record))
+  if (args["marker-directory"]) {
+    const markerDirectory = path.resolve(args["marker-directory"])
+    for (const {containerBaseVersion, marker} of result.markers) {
+      const directory = path.join(markerDirectory, containerBaseVersion)
+      mkdirSync(directory, {recursive: true})
+      writeFileSync(
+        path.join(directory, `mentra-build-number-${marker.buildNumber}.json`),
+        `${JSON.stringify(marker, null, 2)}\n`,
+      )
+    }
+  }
   console.log(recordFile)
 }
 

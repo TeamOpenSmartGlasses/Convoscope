@@ -142,25 +142,23 @@ approval, and `release` refuses to proceed while a deferral is unresolved.
 Every store build number of the family, the Mentra App's iOS build and Android
 version code and the ASG client's version code, is derived from the family
 base version: `MAJOR × 100,000,000 + MINOR × 1,000,000 + PATCH × 10,000 +
-sequence`, with major between 2 and 20, minor and patch at most 99, and
-sequence between 1 and 9,999. Dev and beta use the coordinated run number as
-the sequence; an ASG client rebuilt in a run takes the same number unless a
-higher code is already used in its family, in which case it takes the next free
-one. Production takes the next free sequence above everything the stores hold
-inside the family's window and above every App Store Connect build of that
-marketing version, and a compatibility-lab rebuild of the current app takes
-the next free sequence in that app's own family. Numbers outside the window
-never influence allocation, with one exception dictated by App Store Connect:
-a build uploaded under the family's own version string above its window makes
-that version string unusable, and the release must move to a new family
-version. Every channel of a family therefore orders naturally on both stores:
-beta < production < the next family's dev and beta.
+sequence`, with major between 2 and 20 and minor and patch at most 99. Design:
+`notes/superpowers/specs/2026-09-14-family-build-numbers.md`.
+
+Sequences restart at 1 for every family. Each coordinated run allocates one
+sequence from the family's build container (`mentra-builds-vX.Y.Z`): the next
+free number above every `mentra-build-number-<code>.json` marker and every ASG
+client pair recorded there, and records its own marker before building. The
+ASG client reuses its published code when its sources are unchanged and takes
+the run's number when rebuilt. Production candidates, the production Bluetooth
+example and a compatibility-lab rebuild allocate the same way, from their
+family's container. Release sequences stay below 3,000; the band above is
+reserved for local and pull-request builds.
 
 The Mentra App's 3.1.0 betas and the first 3.2.0 dev builds predate the formula
 and carry a flat `310000000 + run number`, above their families' windows.
 Android testers on the Play beta or internal track with one of those builds
-reinstall the app once to rejoin the release train; glasses are unaffected,
-their ASG codes were already on the formula.
+reinstall the app once to rejoin the release train; glasses are unaffected.
 
 ## Phase 1 - select and freeze
 

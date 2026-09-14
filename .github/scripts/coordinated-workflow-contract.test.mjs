@@ -66,6 +66,12 @@ test("production promotion is resumable and keeps irreversible actions behind se
     assert.match(source, /ref: main/)
   }
   assert.match(prepare, /group: production-release-prepare\n/)
+  // Candidates take the family's next sequence from the family container and
+  // record it there; the lab does the same in the current app's family.
+  assert.match(prepare, /--family-assets promotion-input\/family\/assets\.json/)
+  assert.match(prepare, /--current-family-assets promotion-input\/family\/current-assets\.json/)
+  assert.match(prepare, /--marker-directory promotion-output\/family-build-numbers/)
+  assert.match(prepare, /Record the allocated build numbers in the family containers/)
   assert.doesNotMatch(prepare, /group: production-release-prepare-\$\{\{/)
   assert.match(prepare, /--beta "\$\{\{ inputs\.beta_identity \}\}"/)
   assert.match(prepare, /production-promotion-assets\.mjs selection-digest/)
@@ -319,14 +325,16 @@ test("coordinated docs publish only after finalization to the matching channel",
   const plan = jobBlock(coordinator, "plan")
   // Store build numbers come from the family formula with the run number as
   // the sequence, for the app plan and the ASG client alike.
-  assert.match(plan, /--native-build-sequence "\$\{\{ github\.run_number \}\}"/)
-  assert.doesNotMatch(coordinator, /310000000|--native-build-number/)
+  assert.match(plan, /allocate-family-build-sequence\.mjs allocate/)
+  assert.match(plan, /--native-build-number "\$\{\{ steps\.family-number\.outputs\.build_number \}\}"/)
+  assert.match(plan, /Record the family build number in the release container/)
+  assert.doesNotMatch(coordinator, /310000000|--native-build-sequence/)
   const familyChecks = workflow("release-family-checks.yml")
   assert.match(familyChecks, /--native-build-sequence 1 \\/)
   assert.doesNotMatch(familyChecks, /310000001|--native-build-number/)
   assert.match(
     workflow("reusable-coordinated-ota.yml"),
-    /allocate-asg-version\.mjs \\\n[\s\S]{0,300}--sequence "\$\{\{ github\.run_number \}\}"/,
+    /allocate-asg-version\.mjs \\\n[\s\S]{0,300}--build-number "\$\(jq -er \.native\.buildNumber release-intent\/release-plan\.json\)"/,
   )
   const starterKitJob = jobBlock(coordinator, "starter-kit")
   // The Starter Kit request is shared with the production example: the
@@ -650,8 +658,12 @@ test("the production example is keyed on the promoted beta and never promotes a 
   assert.match(load, /git merge-base --is-ancestor "\$source_commit" origin\/main/)
   assert.match(load, /npm view "\$name@\$RELEASE_IDENTITY" version/)
   assert.match(load, /production-example\.mjs plan/)
-  assert.match(load, /--apple-inventory example-input\/stores\/example-apple\.json/)
-  assert.match(load, /GOOGLE_PLAY_INVENTORY_OUTPUT="\$GITHUB_WORKSPACE\/example-input\/stores\/example-google\.json"/)
+  // The example's number is the family's next sequence from the family
+  // container, recorded there before any upload; stores are not consulted.
+  assert.match(load, /--family-assets example-input\/family\/assets\.json/)
+  assert.match(load, /--marker-directory example-output\/family-build-number/)
+  assert.match(load, /Record the allocated build number in the family container/)
+  assert.doesNotMatch(load, /--apple-inventory|--google-inventory|google_play_inventory/)
   assert.match(load, /production-packages\.mjs ensure-container/)
   assert.match(example, /uses: \.\/\.github\/workflows\/reusable-coordinated-starter-kit\.yml/)
   assert.match(example, /uses: \.\/\.github\/workflows\/reusable-coordinated-example-testflight\.yml/)

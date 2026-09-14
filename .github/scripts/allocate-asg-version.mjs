@@ -9,8 +9,8 @@ const ASSET_PATTERN = /^mentra-live-asg-(\d+)-([0-9a-f]{64})\.(apk|json)$/
 // ASG version codes use the family build-number formula shared with the Mentra
 // App (see release-family.mjs): MAJOR*100_000_000 + MINOR*1_000_000 +
 // PATCH*10_000 + SEQUENCE. The
-// coordinated run number is the sequence, so an ASG rebuilt in a run carries
-// the same number as the app built in that run; a fingerprint already built
+// run's family build number gives the sequence, so an ASG rebuilt in a run
+// carries the same number as the app built in that run; a fingerprint already built
 // keeps its recorded code. Assets outside the family window belong to older
 // schemes and are ignored.
 const MAX_SEQUENCE = BUILD_NUMBER_MAX_SEQUENCE
@@ -84,7 +84,10 @@ function main() {
     assets: JSON.parse(readFileSync(path.resolve(args.assets), "utf8")),
     fingerprint: args.fingerprint,
     baseVersion: args["base-version"],
-    sequence: Number(args.sequence),
+    sequence:
+      args["build-number"] !== undefined
+        ? Number(args["build-number"]) - familyBuildNumberPrefix(args["base-version"])
+        : Number(args.sequence),
   })
   writeFileSync(path.resolve(args.output), `${JSON.stringify(result, null, 2)}\n`)
 }
