@@ -3,11 +3,12 @@
 This is the employee procedure for promoting one completed coordinated beta to
 production. It covers Cloud V2 and the Mentra App on iOS and Android.
 
-The Bluetooth SDK Starter Kit example app is explicitly outside this production
-promotion system. These workflows do not build it, upload it to TestFlight or
-Google Play, submit it for review, or release it publicly. Do not add the example
-app manually to a promotion attempt. Publishing it to app stores later requires
-a reviewed workflow and runbook change; it is not an operator-time option.
+The Bluetooth SDK Starter Kit example app is outside the promotion state
+machine. Its production candidates are built by a separate workflow keyed on
+the promoted beta (see "Bluetooth example" below): it is distributed through
+a public TestFlight link and a dedicated closed Play track and is never
+submitted for App Review or released through a store. Do not add the example
+app manually to a promotion attempt.
 
 The example app is also its own release notion in the coordinated beta. A beta
 is complete, and promotable, when `finalize` writes `mentra-release-<beta>.json`
@@ -127,6 +128,15 @@ Mutating commands require typing the release identity, or `--yes` in an already
 reviewed non-interactive procedure. The CLI never reads production credentials
 and never calls Porter or a store directly.
 
+Two human gates may be deferred with `defer --check NAME --reason TEXT`:
+`production-mobile-n-compatibility` (Phase 5) and
+`production-mobile-candidate-acceptance` (Phase 8). Both precede store review,
+which takes days, and neither guards anything user-facing on its own. A
+deferral records who deferred and why, moves the promotion on, and leaves the
+gate open: `attest` the same check later, at any state before public release
+approval, and `release` refuses to proceed while a deferral is unresolved.
+`status` lists the deferred gates still to attest.
+
 ## Phase 1 - select and freeze
 
 `start` dispatches `production-release-prepare.yml`. It only reads completed
@@ -226,6 +236,12 @@ Run `next` once for preflight and, after it succeeds, again for deployment:
 Preflight loads staging and production configuration into temporary mode-0600
 files, validates the versioned contract, and publishes only key names and
 pass/fail results. It never compares or publishes raw values or secret hashes.
+Some requirements are conditional (`requiredWhen` in the contract): the
+runtime's storage-event webhook secret and its R2/S3 credentials apply only
+while `STORAGE_PROVIDER` is `r2` or `s3`. Production runs the `local` provider
+for managed photos (the cloud photo path is being retired), so those checks
+report `inactive` rather than failing; keys that are present anyway are still
+validated.
 
 Before approving `production-cloud`, compare the frozen source, target, previous
 revision, migration notes, and rollback coordinates in the workflow summary.
@@ -253,6 +269,14 @@ Use `evidence/production-mobile-n.template.json` and attest:
 
 If either platform fails, stop. Choose an explicit Cloud rollback or forward
 fix, then repeat all invalidated evidence.
+
+To submit for store review before this verification is done, defer the gate
+and attest it during review:
+
+```bash
+./scripts/production-release.mjs defer --release X.Y.Z \
+  --check production-mobile-n-compatibility --reason "verify during store review"
+```
 
 ## Phases 6 through 8 - build, upload, and accept candidates
 
@@ -340,7 +364,9 @@ When Apple and Google show review complete for both exact coordinates, fill
 
 ## Phases 11 and 12 - public release and rollout
 
-Request the protected two-person release approval:
+Every deferred human gate must be attested first; `release` refuses otherwise,
+and so does the promotion chain itself. Then request the protected two-person
+release approval:
 
 ```bash
 ./scripts/production-release.mjs release --release X.Y.Z
@@ -461,6 +487,46 @@ Stop conditions specific to packages:
   bump the family base version on `dev` and cut a new beta.
 - Do not run phase 2 until the Cloud side of the release is at least deployed
   or you have explicitly decided that the stable packages may lead it.
+
+## Bluetooth example - production candidates
+
+The production Bluetooth example is built by `production-release-example.yml`
+after the stable packages are public. Like the packages it is keyed on the
+promoted beta, never on a promotion attempt, and it never transitions the
+promotion state machine.
+
+```bash
+./scripts/production-release.mjs example --beta X.Y.Z-beta.N
+```
+
+It refuses to start until `@mentra/bluetooth-sdk@X.Y.Z` and `@mentra/engine@X.Y.Z`
+are public on npm, because the Starter Kit installs them from the registry.
+Then it:
+
+- freezes a production example plan from the beta's exact `sourceCommit` and
+  frozen OTA manifest pin, with one example build number allocated above both
+  store inventories and the beta's own number;
+- requests the Starter Kit's production channel, which synchronizes its `main`
+  branch to the plain versions, builds the examples, tags `sdk-X.Y.Z`, and
+  publishes them in the non-prerelease Starter Kit release `sdk-X.Y.Z`
+  (including `mentra-example-react-native-X.Y.Z.apk`);
+- uploads the iOS build to the external TestFlight group
+  `Mentra Bluetooth Example` (created with its public link on first use) and
+  submits it for Beta App Review, and uploads the Android build to the closed
+  Play track `Mentra Bluetooth Example Production Candidates`. Create that
+  track once in Play Console under exactly that name; a Play track serves one
+  release at a time, so the production example never shares the internal or
+  open-testing tracks with the dev and beta examples; and
+- records `mentra-example-release-X.Y.Z.json` in the stable release
+  `mentra-vX.Y.Z`, the same draft the packages and the rollout finalization
+  stage records into. The record carries `storePromotion: "never"`.
+
+A rerun reuses the Starter Kit release, TestFlight build, and Play upload that
+already exist and refuses anything that exists with different bytes. A Play
+upload that fails leaves the Starter Kit release and TestFlight build in place
+and stops the record; rerun once Play accepts the build. The record is written
+as soon as Apple has the build for review; the public link becomes installable
+when Beta App Review approves it.
 
 ## Abort, retry, and incident handling
 
