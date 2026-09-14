@@ -90,6 +90,10 @@ export const BUILD_NUMBER_MAJOR_WEIGHT = 100_000_000
 export const BUILD_NUMBER_MINOR_WEIGHT = 1_000_000
 export const BUILD_NUMBER_PATCH_WEIGHT = 10_000
 export const BUILD_NUMBER_MAX_SEQUENCE = BUILD_NUMBER_PATCH_WEIGHT - 1
+// Release channels (dev, beta, production) allocate sequences from this band;
+// the sequences above it are reserved for local and pull-request builds, which
+// must always outrank every release of their family.
+export const BUILD_NUMBER_RELEASE_SEQUENCE_LIMIT = 2_999
 
 export function familyBuildNumberPrefix(baseVersion) {
   const match = STABLE_VERSION_PATTERN.exec(typeof baseVersion === "string" ? baseVersion : "")
@@ -308,6 +312,11 @@ export function createReleasePlan({
   if (!buildNumberBelongsTo(family.familyBaseVersion, nativeBuildNumber)) {
     throw new Error(
       `nativeBuildNumber ${JSON.stringify(nativeBuildNumber)} does not belong to family ${family.familyBaseVersion}`,
+    )
+  }
+  if (nativeBuildNumber - familyBuildNumberPrefix(family.familyBaseVersion) > BUILD_NUMBER_RELEASE_SEQUENCE_LIMIT) {
+    throw new Error(
+      `nativeBuildNumber ${nativeBuildNumber} is outside the release band of family ${family.familyBaseVersion}`,
     )
   }
 
