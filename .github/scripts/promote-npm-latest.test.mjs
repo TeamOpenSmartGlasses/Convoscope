@@ -75,7 +75,7 @@ function registry(initialTags) {
   }
 }
 
-test("flips latest for every npm member, reads it back, and retires the candidate tag", () => {
+test("flips latest for every npm member, reads it back, and leaves the candidate tag as a record", () => {
   const members = npmMembersFromPlan(plan)
   const initial = Object.fromEntries(
     members.map((name) => [
@@ -101,7 +101,8 @@ test("flips latest for every npm member, reads it back, and retires the candidat
   assert.equal(result.publications["@mentra/bluetooth-sdk"].npm.status, "published")
   assert.equal(result.publications["@mentra/bluetooth-sdk"].npm.previousLatest, "3.0.0")
   assert.ok(fake.commands.includes(`npm dist-tag add @mentra/bluetooth-sdk@${version} latest`))
-  assert.ok(fake.commands.includes(`npm dist-tag rm @mentra/bluetooth-sdk ${candidateTag}`))
+  assert.ok(!fake.commands.some((command) => command.includes("dist-tag rm")))
+  assert.equal(fake.view("@mentra/bluetooth-sdk", "dist-tags").includes(candidateTag), true)
   assert.ok(!fake.commands.some((command) => command.includes("@mentra/engine@")))
   const written = JSON.parse(readFileSync(path.join(outputDir, "npm-latest.json"), "utf8"))
   assert.equal(written.releaseSetId, plan.releaseSetId)
