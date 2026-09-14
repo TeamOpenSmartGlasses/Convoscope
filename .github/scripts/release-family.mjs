@@ -105,6 +105,27 @@ export function familyBuildNumberPrefix(baseVersion) {
   return major * BUILD_NUMBER_MAJOR_WEIGHT + minor * BUILD_NUMBER_MINOR_WEIGHT + patch * BUILD_NUMBER_PATCH_WEIGHT
 }
 
+// Local and pull-request builds of the app and the ASG client take a sequence
+// above every release of their family, derived from the HEAD commit's
+// committer time so that the app and the ASG client built from the same commit
+// share a number without any shared counter. Minutes wrap the band every 4.9
+// days, which covers iterating on a pull request with glasses attached.
+export const BUILD_NUMBER_NON_RELEASE_SEQUENCE_BASE = 3_000
+const BUILD_NUMBER_NON_RELEASE_SEQUENCE_SPAN = BUILD_NUMBER_MAX_SEQUENCE - BUILD_NUMBER_NON_RELEASE_SEQUENCE_BASE + 1
+const BUILD_NUMBER_EPOCH_SECONDS = Date.UTC(2025, 0, 1) / 1000
+
+export function nonReleaseBuildSequence(committerEpochSeconds) {
+  if (!Number.isSafeInteger(committerEpochSeconds) || committerEpochSeconds < BUILD_NUMBER_EPOCH_SECONDS) {
+    throw new Error(`Commit time ${JSON.stringify(committerEpochSeconds)} must be a Unix time on or after 2025-01-01`)
+  }
+  const minutes = Math.floor((committerEpochSeconds - BUILD_NUMBER_EPOCH_SECONDS) / 60)
+  return BUILD_NUMBER_NON_RELEASE_SEQUENCE_BASE + (minutes % BUILD_NUMBER_NON_RELEASE_SEQUENCE_SPAN)
+}
+
+export function nonReleaseBuildNumber(baseVersion, committerEpochSeconds) {
+  return familyBuildNumber(baseVersion, nonReleaseBuildSequence(committerEpochSeconds))
+}
+
 export function familyBuildNumberWindow(baseVersion) {
   const prefix = familyBuildNumberPrefix(baseVersion)
   return {prefix, first: prefix + 1, last: prefix + BUILD_NUMBER_MAX_SEQUENCE}
@@ -429,7 +450,9 @@ function expectedPublicationCoordinate(plan, memberName, target) {
   if (target === "swift-package-manager") return `Mentra-Community/mentra-bluetooth-sdk-ios@${version}`
   const channels = {
     dev: {play: "internal", appStore: "Mentra Dev"},
-    beta: {play: "beta", appStore: "Mentra Staging"},
+    // Betas use Internal App Sharing while the Play beta track serves a
+    // pre-formula build number above every family window.
+    beta: {play: "internal-app-sharing", appStore: "Mentra Staging"},
     production: {play: "production", appStore: "App Store"},
   }
   const selected = channels[plan.channel]

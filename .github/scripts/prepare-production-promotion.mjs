@@ -67,6 +67,20 @@ function validateCurrentMentraApp(previousManifest, inventory) {
   if (!COMMIT_PATTERN.test(previousManifest.sourceCommit || "")) {
     throw new Error("Previous production manifest has no full source commit")
   }
+  // A coordinated release that predates the family build-number formula (a
+  // flat or timestamp number outside its family's window) cannot be rebuilt
+  // for the compatibility lab: no number in that family's window would install
+  // over it. It is frozen the way a store-observed app is, and Phase 5 still
+  // verifies it against production Cloud N+1.
+  if (!buildNumberBelongsTo(expected.marketingVersion, expected.buildNumber)) {
+    return {
+      provenance: "store-observed",
+      sourceCommit: null,
+      provenanceUrl: null,
+      ios: {marketingVersion: expected.marketingVersion, buildNumber: expected.buildNumber},
+      android: {marketingVersion: expected.marketingVersion, buildNumber: expected.buildNumber},
+    }
+  }
   return {
     provenance: "coordinated",
     sourceCommit: previousManifest.sourceCommit,
@@ -168,9 +182,11 @@ export function prepareProductionPromotion({
   }
   const compatibilityLabBuildNumber = compatibilityLab?.buildNumber ?? null
   // Google Play only publishes a production release above the one it serves.
+  // A production code above the family's window (a legacy flat number) can
+  // only be exceeded by a family whose window lies above it.
   if (mentraBuildNumber <= mentraInventory.google.currentVersionCode) {
     throw new Error(
-      `Candidate build number ${mentraBuildNumber} is not above the Google Play production version code ${mentraInventory.google.currentVersionCode}`,
+      `Candidate build number ${mentraBuildNumber} is not above the Google Play production version code ${mentraInventory.google.currentVersionCode}; release under a family base version whose window lies above that code`,
     )
   }
   const productionPlan = createReleasePlan({

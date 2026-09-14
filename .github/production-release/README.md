@@ -348,9 +348,11 @@ App updates unless the approver documents an exception. For Play verify managed
 publishing before an existing-app production submission.
 
 Then run `next`. The protected workflow submits the exact iOS build with manual
-release and creates or reconciles the exact Google production draft. If a store
-field blocks the API, finish only the equivalent UI action and rerun; the
-workflow must read back the same build.
+release and verifies that the exact Android version code is the Google
+production draft (the candidate build uploaded it there in Phase 7; the API
+never sends Play changes for review on its own). If a store field blocks the
+API, finish only the equivalent UI action and rerun; the workflow must read
+back the same build.
 
 Apple UI fallback:
 
@@ -360,12 +362,12 @@ Apple UI fallback:
 4. Add for Review, open the draft submission, verify the build again, and
    Submit for Review.
 
-Google UI fallback:
+Google, always in the Console (this step has no API path):
 
-1. Play Console -> app -> Production -> Create/Edit release.
-2. Select the exact internal-track version code.
-3. Complete release notes/declarations, Review release, then Send for review.
-4. For existing apps, confirm the change remains in managed publishing.
+1. Play Console -> app -> Production -> the draft release that names the exact
+   candidate version code (do not create another release).
+2. Complete release notes/declarations, Review release, then Send for review.
+3. For existing apps, confirm the change remains in managed publishing.
 
 Check without holding a runner:
 

@@ -100,7 +100,9 @@ test("production promotion is resumable and keeps irreversible actions behind se
   assert.match(rollout, /name: production-store-release/)
   assert.match(status, /permissions:\n  contents: read/)
   assert.match(mobile, /backend_environment: prod/)
-  assert.match(mobile, /play_track: internal/)
+  assert.match(mobile, /play_track: production/)
+  assert.match(mobile, /play_release_status: draft/)
+  assert.match(mobile, /com\.mentra\.mentra:\$\{\{ needs\.load\.outputs\.mentra_build \}\}:production/)
   assert.match(mobile, /Mentra Production Candidates/)
   for (const source of [prepare, mobile, submit, release, status]) {
     assert.doesNotMatch(source, /com\.mentra\.bluetoothsdkexample|starterKitCommit/)
@@ -109,11 +111,15 @@ test("production promotion is resumable and keeps irreversible actions behind se
   assert.match(mobile, /needs: \[load, mentra-app\]/)
   const androidFastfile = mobileFastfile("fastlane-android")
   assert.match(androidFastfile, /version_name: ENV\["GOOGLE_PLAY_RELEASE_NAME"\]/)
-  assert.doesNotMatch(androidFastfile, /release_name:/)
+  assert.match(androidFastfile, /release_status: ENV\.fetch\("GOOGLE_PLAY_RELEASE_STATUS", "completed"\)/)
+  assert.doesNotMatch(androidFastfile, /release_name:|promote_google_play|track_promote_to/)
   assert.match(mobile, /release_id: \$\{\{ needs\.load\.outputs\.promotion_release_id \}\}/)
   assert.match(mobile, /artifact_container_tag: \$\{\{ needs\.load\.outputs\.candidate_container_tag \}\}/)
   assert.doesNotMatch(mobile, /allocate stable artifact container/i)
-  assert.match(submit, /GOOGLE_PLAY_RELEASE_STATUS=draft/)
+  // The candidate already sits on the production track as a draft; submission
+  // verifies it and never promotes from a testing track.
+  assert.doesNotMatch(submit, /promote_google_play|GOOGLE_PLAY_SOURCE_TRACK/)
+  assert.match(submit, /Verify the exact Google Play production draft/)
   assert.doesNotMatch(submit, /automatic_release: true/)
   assert.doesNotMatch(release, /automatic_release: true/)
   assert.match(rollout, /\[\[ "\$percent" -lt 100 \]\]/)
@@ -277,6 +283,17 @@ test("mobile destinations use real TestFlight groups without changing the releas
   assert.match(mobile, /MENTRA_TESTFLIGHT_INTERNAL_ONLY: \$\{\{ inputs\.compatibility_lab \}\}/)
   assert.match(mobile, /testFlightInternalTestingOnly -bool true/)
   assert.match(mobile, /google-play-internal-sharing\.mjs/)
+  assert.match(mobile, /if: inputs\.dry_run != true && inputs\.play_track == 'internal-app-sharing'/)
+  assert.match(mobile, /GOOGLE_PLAY_RELEASE_STATUS: \$\{\{ inputs\.play_release_status \}\}/)
+  assert.match(mobile, /--internal-sharing mobile-release\/android-internal-sharing\.json/)
+  assert.match(mobile, /play_install_url:\n        value: \$\{\{ jobs\.android\.outputs\.play_install_url \}\}/)
+  assert.match(coordinator, /PLAY_INSTALL_URL: \$\{\{ needs\.mobile\.outputs\.play_install_url \}\}/)
+  // The beta channel and the plan's expected coordinate name the same Play destination.
+  assert.match(coordinator, /play_track=internal-app-sharing/)
+  assert.match(
+    readFileSync(new URL("./release-family.mjs", import.meta.url), "utf8"),
+    /beta: \{play: "internal-app-sharing"/,
+  )
   assert.match(mobile, /COMPATIBILITY-LAB-NOT-FOR-PRODUCTION/)
   assert.doesNotMatch(mobile, /MENTRA_COORDINATED_RELEASE_CHANNEL=\$\{\{ inputs\.testflight_group \}\}/)
   assert.match(example, /EXAMPLE_APP_ID: "6792839366"/)

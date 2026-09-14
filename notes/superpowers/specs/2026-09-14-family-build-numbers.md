@@ -27,7 +27,7 @@ buildNumber = MAJOR × 100,000,000 + MINOR × 1,000,000 + PATCH × 10,000 + sequ
   the timestamp scheme of the pre-coordinated releases (below 60 million) and the
   first coordinated ASG allocator's `100,000,000 + run number`. The Mentra App's
   3.1.0 betas and the first 3.2.0 dev builds used a flat `310,000,000 + run
-  number`, above their families' windows; Android testers on those builds
+number`, above their families' windows; Android testers on those builds
   reinstall once. Glasses are never a floor: the phone can downgrade the ASG
   client through the detour (reinstall the firmware's system app, then upgrade to
   the target).
@@ -82,6 +82,45 @@ production Bluetooth example allocates the same way. A compatibility-lab
 rebuild of the current public app takes the next sequence of that app's own
 family, from that family's container. Google Play production must still be
 exceeded, which the family window guarantees over the legacy timestamp codes.
+
+## Google Play track floors
+
+Google Play refuses a release on a track when the release that track currently
+serves has a higher version code ("does not allow any existing users to
+upgrade"). The floor is per track, it is the served release, and it cannot be
+lowered: a completed release can only be halted when an earlier completed
+release on the same track takes over, and the earliest one can never be
+halted. Nothing uploaded to Play can be deleted.
+
+Before this formula the Mentra App's dev and beta channels stamped
+`310000000 + run number` and the aborted 3.1.0 candidate stamped 900000002, so
+the `internal` track serves 900000002 and the `beta` (open testing) track
+serves 310000212. Both sit above every family window below 3.10, permanently.
+The Play `production` track serves the legacy timestamp code 50572796, below
+every family window, so production is the one track the formula can always
+reach.
+
+The pipeline therefore uses Play like this:
+
+- **Betas** distribute through Google Play Internal App Sharing, which has no
+  version-code floor and serves Play-signed builds: the record's `google-play`
+  publication carries the coordinate `com.mentra.mentra:<code>:internal-app-sharing`
+  and the Play download link, which the Slack notification also shows. This is
+  the same path the compatibility lab already used. Testers who hold a
+  pre-formula build uninstall once to take the lower code.
+- **Production candidates** upload straight to the `production` track as a
+  draft release that nothing in the pipeline rolls out. The prepare step's
+  guard (candidate above the served production release) is exactly Play's rule
+  for that track. Store submission verifies that draft and no longer promotes
+  from a testing track.
+- **Dev** on the dev branch keeps its Play upload paused (`googlePlayUpload`
+  in the plan) for the same reason.
+
+When a fresh closed testing track exists for betas (and one for candidates, if
+tester installs of the candidate are wanted again), point the channel at it in
+`coordinated-release.yml` and in the expected coordinate map in
+`release-family.mjs`; the contract test keeps the two in step. A new closed
+track starts with no served release, so its floor is empty.
 
 ## Non-release builds (local and PR CI)
 

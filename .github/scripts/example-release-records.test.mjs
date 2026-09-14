@@ -14,9 +14,8 @@ import {
 import {createReleasePlan, familyBuildNumber, loadReleaseFamily} from "./release-family.mjs"
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..")
-const provenanceUrl = "https://github.com/Mentra-Community/MentraOS/actions/runs/123"
-
 const family = loadReleaseFamily({rootDir})
+const provenanceUrl = "https://github.com/Mentra-Community/MentraOS/actions/runs/123"
 
 function planFor(channel = "beta") {
   return createReleasePlan({
@@ -51,7 +50,7 @@ function fixtures(plan) {
       mergeCommit: "3".repeat(40),
       sourceTag: `sdk-${plan.releaseIdentity}`,
       artifactContainerTag: `sdk-builds-v${plan.familyBaseVersion}`,
-      releaseUrl: "https://github.com/Mentra-Community/Mentra-Bluetooth-SDK-Starter-Kit/releases/tag/sdk-builds-v3.1.0",
+      releaseUrl: `https://github.com/Mentra-Community/Mentra-Bluetooth-SDK-Starter-Kit/releases/tag/sdk-builds-v${family.familyBaseVersion}`,
       pullRequestUrl: "https://github.com/Mentra-Community/Mentra-Bluetooth-SDK-Starter-Kit/pull/51",
       validationRunUrl: "https://github.com/Mentra-Community/Mentra-Bluetooth-SDK-Starter-Kit/actions/runs/456",
     },
@@ -154,7 +153,7 @@ test("the example release cannot be assembled without the finalized beta it was 
   const plan = planFor()
   const {betaManifest} = fixtures(plan)
   assert.throws(
-    () => assemble(plan, {betaManifest: {...betaManifest, releaseIdentity: "3.1.0-beta.56"}}),
+    () => assemble(plan, {betaManifest: {...betaManifest, releaseIdentity: `${family.familyBaseVersion}-beta.56`}}),
     /finalized manifest of the same coordinated beta/,
   )
   assert.throws(
@@ -223,8 +222,15 @@ function productionFixtures() {
       releaseSetId: plan.releaseSetId,
       releaseIdentity: plan.releaseIdentity,
       channel: "production",
-      packages: {"@mentra/bluetooth-sdk": "3.1.0", "@mentra/engine": "3.1.0"},
-      starterKit: {...starterKit.starterKit, sourceTag: "sdk-3.1.0", artifactContainerTag: "sdk-3.1.0"},
+      packages: {
+        "@mentra/bluetooth-sdk": `${family.familyBaseVersion}`,
+        "@mentra/engine": `${family.familyBaseVersion}`,
+      },
+      starterKit: {
+        ...starterKit.starterKit,
+        sourceTag: `sdk-${family.familyBaseVersion}`,
+        artifactContainerTag: `sdk-${family.familyBaseVersion}`,
+      },
       artifacts: starterKit.artifacts.map((artifact) => ({
         ...artifact,
         name: artifact.name.replace(betaPlan.releaseIdentity, plan.releaseIdentity),
@@ -235,7 +241,10 @@ function productionFixtures() {
       releaseSetId: plan.releaseSetId,
       releaseIdentity: plan.releaseIdentity,
       channel: "production",
-      version: {marketingVersion: "3.1.0", buildNumber: familyBuildNumber(family.familyBaseVersion, 58)},
+      version: {
+        marketingVersion: `${family.familyBaseVersion}`,
+        buildNumber: familyBuildNumber(family.familyBaseVersion, 58),
+      },
       group: {id: "group-2", name: "Mentra Bluetooth Example"},
       distribution: {
         audience: "external",
@@ -249,12 +258,15 @@ function productionFixtures() {
       releaseSetId: plan.releaseSetId,
       releaseIdentity: plan.releaseIdentity,
       channel: "production",
-      version: {marketingVersion: "3.1.0", buildNumber: familyBuildNumber(family.familyBaseVersion, 58)},
+      version: {
+        marketingVersion: `${family.familyBaseVersion}`,
+        buildNumber: familyBuildNumber(family.familyBaseVersion, 58),
+      },
       track: "Mentra Bluetooth Example Production Candidates",
       distribution: {...exampleGooglePlay.distribution, audience: "internal"},
       aab: {
         ...exampleGooglePlay.aab,
-        url: `https://github.com/Mentra-Community/MentraOS/releases/download/${plan.artifactContainerTag}/mentra-example-react-native-3.1.0.aab`,
+        url: `https://github.com/Mentra-Community/MentraOS/releases/download/${plan.artifactContainerTag}/mentra-example-react-native-${family.familyBaseVersion}.aab`,
       },
     },
   }
@@ -282,7 +294,7 @@ test("a production example is finalized against the promoted beta's manifest and
   const f = productionFixtures()
   const record = assembleProduction()
   assert.equal(record.channel, "production")
-  assert.equal(record.releaseIdentity, "3.1.0")
+  assert.equal(record.releaseIdentity, `${family.familyBaseVersion}`)
   assert.equal(record.native.buildNumber, familyBuildNumber(family.familyBaseVersion, 58))
   assert.equal(record.betaManifest.name, `mentra-release-${f.betaPlan.releaseIdentity}.json`)
   assert.equal(record.promotion.selectedBetaIdentity, f.betaPlan.releaseIdentity)
@@ -303,7 +315,8 @@ test("a production example is finalized against the promoted beta's manifest and
 test("a production example refuses a manifest, plan, or destination that is not the promoted beta's", () => {
   const f = productionFixtures()
   assert.throws(
-    () => assembleProduction({betaManifest: {...f.betaManifest, releaseIdentity: "3.1.0-beta.56"}}),
+    () =>
+      assembleProduction({betaManifest: {...f.betaManifest, releaseIdentity: `${family.familyBaseVersion}-beta.56`}}),
     /finalized manifest of the promoted beta/,
   )
   assert.throws(

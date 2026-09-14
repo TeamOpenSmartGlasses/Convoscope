@@ -224,16 +224,23 @@ jobs:
           download_markers promotion-input/family/assets.json \
             "$(jq -er .native.buildNumber promotion-input/beta/release-plan.json)" promotion-input/family/markers
           echo "release_id=$release_id" >> "$GITHUB_OUTPUT"
+          # The current app's family container is only needed for a compatibility
+          # lab; a current app that predates the formula has none, and its
+          # family may have no container at all.
           if [[ "$PREVIOUS_FOUND" == "true" ]]; then
             current_version=$(jq -er .familyBaseVersion promotion-input/current/release-plan.json)
             current_tag="mentra-builds-v$current_version"
-            current_id=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/$current_tag" --jq .id)
-            gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/releases/$current_id/assets?per_page=100" \
-              | jq 'add // []' > promotion-input/family/current-assets.json
-            download_markers promotion-input/family/current-assets.json \
-              "$(jq -er .native.buildNumber promotion-input/current/release-plan.json)" promotion-input/family/current-markers
+            mkdir -p promotion-input/family/current-markers
+            if current_id=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/$current_tag" --jq .id 2>/dev/null); then
+              gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/releases/$current_id/assets?per_page=100" \
+                | jq 'add // []' > promotion-input/family/current-assets.json
+              download_markers promotion-input/family/current-assets.json \
+                "$(jq -er .native.buildNumber promotion-input/current/release-plan.json)" promotion-input/family/current-markers
+              echo "current_release_id=$current_id" >> "$GITHUB_OUTPUT"
+            else
+              echo '[]' > promotion-input/family/current-assets.json
+            fi
             echo "current_version=$current_version" >> "$GITHUB_OUTPUT"
-            echo "current_release_id=$current_id" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Allocate append-only promotion container
@@ -301,13 +308,20 @@ jobs:
           CURRENT_RELEASE_ID: ${{ steps.family.outputs.current_release_id }}
         run: |
           set -euo pipefail
+          shopt -s nullglob
+          published=0
           for marker in promotion-output/family-build-numbers/"$RELEASE_IDENTITY"/mentra-build-number-*.json; do
             name=$(basename "$marker")
             node .github/scripts/publish-immutable-release-asset.mjs \
               --file "promotion-output/family-build-numbers/$RELEASE_IDENTITY/$name" --name "$name" \
               --release-id "$FAMILY_RELEASE_ID" --repository "$GITHUB_REPOSITORY"
+            published=$((published + 1))
           done
-          if [[ -n "$CURRENT_VERSION" ]]; then
+          (( published == 1 ))
+          # A compatibility-lab marker exists only when the current app could be
+          # rebuilt; it then goes to that app's family container.
+          if [[ -n "$CURRENT_VERSION" && -d "promotion-output/family-build-numbers/$CURRENT_VERSION" ]]; then
+            test -n "$CURRENT_RELEASE_ID"
             for marker in promotion-output/family-build-numbers/"$CURRENT_VERSION"/mentra-build-number-*.json; do
               name=$(basename "$marker")
               node .github/scripts/publish-immutable-release-asset.mjs \

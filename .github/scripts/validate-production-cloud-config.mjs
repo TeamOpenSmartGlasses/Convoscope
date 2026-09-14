@@ -130,7 +130,10 @@ function validateConnectionUrl(value, protocols, label) {
 
 function validateValue(value, rule, label, environment) {
   if (typeof value !== "string" || value.trim() === "") throw new Error(`${label} is missing or empty`)
-  if (/TBD|CHANGEME|localhost|127\.0\.0\.1/i.test(value))
+  // Key material is validated structurally below; its base64 body can contain
+  // any letter sequence, so the placeholder scan does not apply to it.
+  const keyMaterialRule = rule.kind === "private-key" || rule.kind === "public-key"
+  if (!keyMaterialRule && /TBD|CHANGEME|localhost|127\.0\.0\.1/i.test(value))
     throw new Error(`${label} contains a placeholder or local value`)
   const values = rule.valuesByEnvironment?.[environment] || rule.values
   if (values && !values.includes(value)) throw new Error(`${label} is not an allowed ${environment} value`)
