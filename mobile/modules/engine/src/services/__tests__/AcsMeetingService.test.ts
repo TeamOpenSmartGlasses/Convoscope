@@ -134,6 +134,8 @@ function fakeNative() {
       return {remove: () => listeners.delete(event)}
     },
     emit: (event: string, payload: Record<string, unknown>) => listeners.get(event)?.(payload),
+    /** The handler currently bound, kept so a test can fire it after it was unregistered. */
+    handlerFor: (event: string) => listeners.get(event),
   }
 }
 
@@ -293,6 +295,38 @@ describe("AcsMeetingService", () => {
     await acsMeetingService.leave("com.mentra.call")
     native.emit("onState", {state: "disconnected", muted: false})
     expect(seen).toEqual(["connected"])
+    acsMeetingService.setStateHandler(() => {})
+  })
+
+  /**
+   * Removing a listener does not recall an event already dispatched onto the JS queue. On the
+   * SoftAP path that event is usually the previous call's `disconnected`, arriving while the
+   * wearer watches the next call connect — which is why the generation is checked in the handler
+   * and not only at `remove()`.
+   */
+  test("a state event already in flight when the next call starts does not end it", async () => {
+    const native = fakeNative()
+    setAcsMeetingNativeForTests(native)
+    const seen: string[] = []
+    acsMeetingService.setStateHandler((_pkg, state) => {
+      seen.push(state.state)
+    })
+    const options = {
+      meetingUrl: "https://teams.microsoft.com/l/meetup-join/x",
+      token: "tok",
+      videoSource: {type: "whep" as const, url: "https://example.com/whep"},
+    }
+    await acsMeetingService.join("com.mentra.call", options)
+    const stale = native.handlerFor("onState")
+    await acsMeetingService.leave("com.mentra.call")
+    await acsMeetingService.join("com.mentra.call", options)
+    native.emit("onState", {state: "connected", muted: false})
+
+    stale?.({state: "disconnected", muted: false})
+
+    expect(seen).not.toContain("disconnected")
+    expect(acsMeetingService.getState().state).toBe("connected")
+    expect(acsMeetingService.ownerPackage()).toBe("com.mentra.call")
     acsMeetingService.setStateHandler(() => {})
   })
 

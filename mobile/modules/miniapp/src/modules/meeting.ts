@@ -90,6 +90,14 @@ export interface MeetingOutgoingVideo {
   maxBitrateBps: number
 }
 
+/**
+ * Which path the wearer took into the call: a meeting this app created, or a link they joined.
+ *
+ * Diagnostic only — the host behaves identically either way — but it is stamped on the host and
+ * native traces, so a quality comparison between the two paths can be made from one capture.
+ */
+export type MeetingOrigin = "created" | "joined"
+
 export interface MeetingJoinOptions {
   provider: MeetingProvider
   meetingUrl: string
@@ -98,6 +106,7 @@ export interface MeetingJoinOptions {
   token: string
   displayName?: string
   video?: MeetingOutgoingVideo
+  origin?: MeetingOrigin
 }
 
 export type MeetingParticipantState = "idle" | "connecting" | "connected" | "lobby" | "hold" | "disconnected"
@@ -317,6 +326,7 @@ export class MeetingModule {
           videoSource,
           token: options.token,
           displayName: options.displayName,
+          ...(options.origin ? {origin: options.origin} : {}),
           ...(options.video ? {video: options.video} : {}),
         },
         {timeoutMs: 0},

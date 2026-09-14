@@ -88,9 +88,11 @@ import {advanceMiniappPingLiveness} from "./MiniappLiveness"
 import {listPhoneCalendarEvents, PhoneCalendarError} from "./PhoneCalendarService"
 import {LocalMiniappStorage} from "./LocalMiniappStorage"
 import acsMeetingService, {
+  parseAcsCallOrigin,
   parseAcsOutgoingVideo,
   parseAcsVideoSource,
   resolveAcsAudioSource,
+  type AcsCallOrigin,
   type AcsOutgoingVideo,
   type AcsVideoSource,
   type MeetingState,
@@ -427,6 +429,37 @@ type SoftapAttempt = {
 /** How long a stalled SoftAP cleanup goes unremarked before it is logged. It is never abandoned. */
 const SOFTAP_CLEANUP_STALL_LOG_MS = 10_000
 
+/**
+ * The WHIP listener's tombstone (3s) plus a margin for the close itself.
+ *
+ * Sized to the grace period rather than picked round, so an expiry here means something actually
+ * went wrong instead of meaning we guessed short.
+ */
+const SOFTAP_INGEST_CLOSE_WAIT_MS = 3_500
+
+/** How long the glasses get to acknowledge their hotspot off, over BLE. */
+const SOFTAP_HOTSPOT_OFF_ACK_MS = 5_000
+
+/** After a forced close there is nothing left to wait for, so this only catches a real failure. */
+const SOFTAP_FORCED_VERIFY_MS = 500
+
+/** Reject with [reason] if [work] has not settled in [ms]. The work itself is not cancellable. */
+function withTimeout<T>(work: Promise<T>, ms: number, reason: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(reason)), ms)
+    work.then(
+      (value) => {
+        clearTimeout(timer)
+        resolve(value)
+      },
+      (error) => {
+        clearTimeout(timer)
+        reject(error)
+      },
+    )
+  })
+}
+
 /** How long the next call waits for the previous one's cleanup before telling the wearer about it. */
 const SOFTAP_CLEANUP_NARRATE_AFTER_MS = 250
 
@@ -446,6 +479,16 @@ class LocalMiniappRuntime {
    * before the first `await` and is what every later stage checks itself against.
    */
   private softapAttempt: SoftapAttempt | null = null
+  /**
+   * The outer generation. Every async callback that can outlive an attempt checks itself against
+   * it and traces `softap_stale_callback` when it loses: ACS state, SoftAP progress, glasses
+   * stream status, scoped-network loss, and each checkpoint through the join.
+   *
+   * There are inner generations below this one — `AcsMeetingSession.joinGeneration` and
+   * `LocalWhipIngestSource.generation` — and they are not redundant. They fence work inside one
+   * native session against itself; this one fences whole attempts against each other, and only it
+   * knows that the wearer pressed Cancel before any of that native work existed.
+   */
   private softapAttemptSeq = 0
   /**
    * Why the previous SoftAP call's cleanup failed, if it did.
@@ -3379,7 +3422,7 @@ class LocalMiniappRuntime {
   private requireManifestPermission(
     packageName: string,
     requestId: string | undefined,
-    permission: "CAMERA" | "MICROPHONE",
+    permission: "CAMERA" | "PHONE_CAMERA" | "MICROPHONE",
     purpose: string,
     operation: MiniappRequestType,
   ): boolean {
@@ -3391,6 +3434,31 @@ class LocalMiniappRuntime {
       message: `${permission} permission not declared in miniapp.json. Add {"type": "${permission}"} to the "permissions" array.`,
       permission,
       operation,
+    })
+    return false
+  }
+
+  /**
+   * OS-permission gate: checked, never requested.
+   *
+   * The prompt belongs at miniapp-open time, where it can be explained. Requesting here would put
+   * a system dialog on top of a join that has already started building a hotspot, and a wearer who
+   * denies it gets a call that half-exists. Missing means the join is refused with the permission
+   * named, so the miniapp can send them to Settings.
+   */
+  private async requireOsPermission(
+    packageName: string,
+    requestId: string | undefined,
+    feature: string,
+    label: string,
+  ): Promise<boolean> {
+    if (await permissions.check(feature)) return true
+    softapTraceFailure("softap_permission_missing", {packageName, feature})
+    this.sendResult(packageName, requestId, false, undefined, {
+      code: MiniappErrorCode.PERMISSION_DENIED,
+      message: `This phone's ${label} permission is not granted. Grant it in Settings, then try again.`,
+      permission: feature,
+      operation: MiniappRequestType.MEETING_JOIN,
     })
     return false
   }
@@ -3697,13 +3765,29 @@ class LocalMiniappRuntime {
         "MICROPHONE",
         "to join a meeting",
         MiniappRequestType.MEETING_JOIN,
+      ) ||
+      !this.requireManifestPermission(
+        packageName,
+        requestId,
+        "PHONE_CAMERA",
+        "to join a meeting",
+        MiniappRequestType.MEETING_JOIN,
       )
     ) {
       return
     }
+    // Defensive only: these are prompted for when the wearer opens the miniapp, so by the time a
+    // join runs they are either granted or were refused minutes ago on a screen that explained
+    // them. Checked and never requested — a permission dialog on top of a half-built call is
+    // asked too late to explain itself, and ACS fails the join outright without the camera.
+    if (!(await this.requireOsPermission(packageName, requestId, PermissionFeatures.CAMERA, "camera"))) return
+    if (!(await this.requireOsPermission(packageName, requestId, PermissionFeatures.MICROPHONE, "microphone"))) return
     const meetingUrl = typeof payload.meetingUrl === "string" ? payload.meetingUrl : ""
     const token = typeof payload.token === "string" ? payload.token : ""
     const displayName = typeof payload.displayName === "string" ? payload.displayName : undefined
+    // Diagnostic only. A miniapp that does not send it gets `unknown`, which is a third answer in
+    // the comparison rather than a default that would quietly file every old build under "created".
+    const origin = parseAcsCallOrigin(payload.origin)
     if (!meetingUrl || !token) {
       this.sendResult(packageName, requestId, false, undefined, {
         code: MiniappErrorCode.INVALID_ARGUMENT,
@@ -3744,10 +3828,11 @@ class LocalMiniappRuntime {
           transport: videoSource.type,
           hasDisplayName: Boolean(displayName),
           video: video ? `${video.width}x${video.height}@${video.fps}` : "default",
+          origin,
         })
         const startedAt = Date.now()
         try {
-          const state = await this.joinSoftapMeeting(packageName, {meetingUrl, token, displayName, video})
+          const state = await this.joinSoftapMeeting(packageName, {meetingUrl, token, displayName, video, origin})
           softapTrace("meeting_join_result", {
             packageName,
             requestId: requestId ?? "none",
@@ -3774,13 +3859,20 @@ class LocalMiniappRuntime {
         token,
         videoSource,
         displayName,
+        origin,
         ...(video ? {video} : {}),
       })
       this.sendResult(packageName, requestId, true, state)
     } catch (err) {
+      // A SoftAP failure already knows what it was and where. Flattening every one of them to
+      // INTERNAL is what left the miniapp unable to tell "your Wi-Fi is off" — a condition with a
+      // two-tap fix — from an ACS timeout, so it showed the same shrug for both. The step comes
+      // along too: the same code at `hotspot` and at `scopedJoin` are different stories.
+      const softap = err instanceof SoftapCallError ? err : undefined
       this.sendResult(packageName, requestId, false, undefined, {
-        code: MiniappErrorCode.INTERNAL,
+        code: softap?.code ?? MiniappErrorCode.INTERNAL,
         message: err instanceof Error ? err.message : "ACS meeting join failed",
+        ...(softap ? {step: softap.step} : {}),
       })
     }
   }
@@ -3796,7 +3888,7 @@ class LocalMiniappRuntime {
    */
   private async joinSoftapMeeting(
     packageName: string,
-    args: {meetingUrl: string; token: string; displayName?: string; video?: AcsOutgoingVideo},
+    args: {meetingUrl: string; token: string; displayName?: string; video?: AcsOutgoingVideo; origin?: AcsCallOrigin},
   ): Promise<MeetingState> {
     // Reserve before awaiting retirement: a second Start or Cancel must see this request,
     // including while it is waiting for its predecessor's native cleanup.
@@ -3933,7 +4025,7 @@ class LocalMiniappRuntime {
   private async runSoftapAttempt(
     attempt: SoftapAttempt,
     previous: SoftapAttempt | null,
-    args: {meetingUrl: string; token: string; displayName?: string; video?: AcsOutgoingVideo},
+    args: {meetingUrl: string; token: string; displayName?: string; video?: AcsOutgoingVideo; origin?: AcsCallOrigin},
   ): Promise<MeetingState> {
     const packageName = attempt.packageName
     if (previous) {
@@ -3988,6 +4080,7 @@ class LocalMiniappRuntime {
         meetingUrl: args.meetingUrl,
         token: args.token,
         displayName: args.displayName,
+        video: args.video,
         awaitFirstFrame: () => acsMeetingService.waitForFirstFrame(SOFTAP_FIRST_FRAME_MS),
         subsystems: {
           setHotspotState: async (enabled) => {
@@ -3996,6 +4089,12 @@ class LocalMiniappRuntime {
               return {state: status.state, ssid: status.ssid, password: status.password, localIp: status.localIp}
             }
             return {state: status.state}
+          },
+          isWifiEnabled: async () => {
+            // A host that cannot answer reports "on" so the preflight stands aside; the native
+            // throw at scopedJoin is what covers those platforms.
+            const enabled = await acsMeetingService.isWifiEnabled()
+            return enabled ?? true
           },
           joinScopedNetwork: (ssid, passphrase, gateway) =>
             acsMeetingService.joinScopedNetwork(ssid, passphrase, gateway),
@@ -4008,6 +4107,18 @@ class LocalMiniappRuntime {
           awaitValidatedDefaultNetwork: () => acsMeetingService.awaitValidatedDefaultNetwork(),
           onGlassesStreamStatus: (listener) => {
             const sub = BluetoothSdk.addListener("stream_status", (event) => {
+              // The glasses narrate over BLE, which is slow enough that a status from the previous
+              // publish can land after this attempt was retired — and it is narration, so it would
+              // be written straight onto the new call's checklist as if it were happening now.
+              if (this.softapAttempt !== attempt || attempt.cancelled) {
+                softapTrace("softap_stale_callback", {
+                  source: "glasses_stream_status",
+                  attempt: attempt.id,
+                  status: event.status,
+                  current: this.softapAttempt?.id ?? "none",
+                })
+                return
+              }
               listener({
                 status: event.status,
                 streamId: event.streamId,
@@ -4023,6 +4134,7 @@ class LocalMiniappRuntime {
               token: options.token,
               videoSource: options.videoSource,
               displayName: options.displayName,
+              origin: args.origin,
               ...(args.video ? {video: args.video} : {}),
             }),
           leaveMeeting: (pkg) => acsMeetingService.leave(pkg),
@@ -4250,8 +4362,10 @@ class LocalMiniappRuntime {
     // Start Call's `teams:create` return `Request failed (503)` — Cloudflare, no internet, not a
     // Teams configuration problem.
     const defaultNetworkStartedAt = Date.now()
+    let defaultNetworkOk = false
     try {
       const network = await acsMeetingService.awaitValidatedDefaultNetwork()
+      defaultNetworkOk = true
       softapTrace("softap_teardown_step", {
         attempt: attempt.id,
         step: "awaitValidatedDefaultNetwork",
@@ -4275,9 +4389,12 @@ class LocalMiniappRuntime {
         reason: error instanceof Error ? error.message : String(error),
       })
     }
+    const defaultNetworkMs = Date.now() - defaultNetworkStartedAt
     const acsLeaveStartedAt = Date.now()
+    let acsLeaveOk = false
     try {
       const outcome = await acsMeetingService.leaveAndAwait(attempt.packageName)
+      acsLeaveOk = outcome.completed
       softapTrace("softap_teardown_step", {
         attempt: attempt.id,
         step: "acsLeaveAndAwait",
@@ -4311,6 +4428,12 @@ class LocalMiniappRuntime {
       step: "scopedLostListener",
       outcome: hadScopedLostListener ? "ok" : "not taken",
     })
+    failures.push(
+      ...(await this.settleSoftapTeardown(attempt, {
+        acsLeave: {ok: acsLeaveOk, durationMs: Date.now() - acsLeaveStartedAt},
+        defaultNetwork: {ok: defaultNetworkOk, durationMs: defaultNetworkMs},
+      })),
+    )
     if (failures.length > 0) {
       this.softapCleanupError = failures.join("; ")
       console.warn("[LocalMiniappRuntime] softap_cleanup_failed", {attempt: attempt.id, failures})
@@ -4327,6 +4450,124 @@ class LocalMiniappRuntime {
     attempt.releaseHotspot?.()
     attempt.releaseHotspot = undefined
     if (endFailure) throw endFailure
+  }
+
+  /**
+   * The last two gates, and the point where a timeout stops being treated as consent.
+   *
+   * Four things have to be true before the next call may start: this device is out of the ACS
+   * call, the WHIP listener's port is released, the glasses have acknowledged their hotspot off,
+   * and the phone has a validated default route again. The first and last already ran; this adds
+   * the two that were never waited for at all, and the ones that produced the stop-then-start
+   * failure — the listener was still inside its 3s tombstone and the glasses AP was still up.
+   *
+   * A bound that expires is not success. It means the resource is still held by a call nobody is
+   * in any more, so it is taken by force and re-verified. Only if *that* fails does the next join
+   * get refused, which is a worse outcome than a slow teardown and a better one than two calls
+   * sharing a port.
+   *
+   * @returns failures to record; a non-empty list refuses the next join.
+   */
+  private async settleSoftapTeardown(
+    attempt: SoftapAttempt,
+    earlier: {acsLeave: {ok: boolean; durationMs: number}; defaultNetwork: {ok: boolean; durationMs: number}},
+  ): Promise<string[]> {
+    const ingestStartedAt = Date.now()
+    let ingestClosed = false
+    try {
+      ingestClosed = await acsMeetingService.awaitIngestClosed(SOFTAP_INGEST_CLOSE_WAIT_MS)
+    } catch (error) {
+      softapTraceFailure("softap_teardown_step", {
+        attempt: attempt.id,
+        step: "awaitIngestClosed",
+        outcome: "failed",
+        reason: error instanceof Error ? error.message : String(error),
+      })
+    }
+    const ingestMs = Date.now() - ingestStartedAt
+
+    const hotspotStartedAt = Date.now()
+    let hotspotOff = false
+    let hotspotReason = ""
+    try {
+      // Idempotent by design — the command asks for "disabled" rather than toggling — so sending
+      // it again after the transport's own stop costs nothing and is the only way to get an ack
+      // that is bound to a deadline we chose.
+      const status = await withTimeout(
+        BluetoothSdk.setHotspotState(false),
+        SOFTAP_HOTSPOT_OFF_ACK_MS,
+        "hotspot_off_ack_timeout",
+      )
+      hotspotOff = status.state === "disabled"
+      hotspotReason = status.state
+    } catch (error) {
+      hotspotReason = error instanceof Error ? error.message : String(error)
+    }
+    const hotspotMs = Date.now() - hotspotStartedAt
+
+    softapTrace("softap_teardown_settled", {
+      attempt: attempt.id,
+      acsLeaveMs: earlier.acsLeave.durationMs,
+      acsLeaveOk: earlier.acsLeave.ok,
+      ingestClosedMs: ingestMs,
+      ingestClosed,
+      hotspotOffMs: hotspotMs,
+      hotspotOff,
+      hotspotDetail: hotspotReason,
+      defaultNetworkMs: earlier.defaultNetwork.durationMs,
+      defaultNetworkOk: earlier.defaultNetwork.ok,
+    })
+
+    if (ingestClosed && hotspotOff) return []
+    return this.forceSoftapCleanup(attempt, {ingestClosed, hotspotOff, hotspotReason})
+  }
+
+  /**
+   * Take back what the bounded waits could not confirm was released.
+   *
+   * Runs only after a gate timed out, and re-verifies rather than assuming: the whole reason the
+   * barrier exists is that "it has probably finished by now" is what broke restarts.
+   */
+  private async forceSoftapCleanup(
+    attempt: SoftapAttempt,
+    gates: {ingestClosed: boolean; hotspotOff: boolean; hotspotReason: string},
+  ): Promise<string[]> {
+    const failures: string[] = []
+    softapTraceFailure("softap_teardown_forced", {
+      attempt: attempt.id,
+      ingestClosed: gates.ingestClosed,
+      hotspotOff: gates.hotspotOff,
+      hotspotDetail: gates.hotspotReason,
+    })
+    if (!gates.ingestClosed) {
+      try {
+        await acsMeetingService.forceCloseIngest()
+        // Re-asked, not assumed: `forceCloseIngest` skips the tombstone, so the latch should be
+        // open immediately. A short bound here is enough and a failure is real.
+        const closed = await acsMeetingService.awaitIngestClosed(SOFTAP_FORCED_VERIFY_MS)
+        if (!closed) failures.push("the video receiver did not release its port")
+      } catch (error) {
+        failures.push(`forced ingest close: ${error instanceof Error ? error.message : String(error)}`)
+      }
+    }
+    if (!gates.hotspotOff) {
+      try {
+        const status = await withTimeout(
+          BluetoothSdk.setHotspotState(false),
+          SOFTAP_HOTSPOT_OFF_ACK_MS,
+          "hotspot_off_ack_timeout",
+        )
+        if (status.state !== "disabled") failures.push(`the glasses hotspot is still ${status.state}`)
+      } catch (error) {
+        failures.push(`glasses hotspot off: ${error instanceof Error ? error.message : String(error)}`)
+      }
+    }
+    softapTrace("softap_teardown_forced_done", {
+      attempt: attempt.id,
+      recovered: failures.length === 0,
+      failures: failures.join("; "),
+    })
+    return failures
   }
 
   private async handleMeetingLeave(packageName: string, requestId?: string): Promise<void> {

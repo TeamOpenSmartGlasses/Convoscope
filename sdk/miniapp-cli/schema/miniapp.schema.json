@@ -91,13 +91,14 @@
             "enum": [
               "MICROPHONE",
               "CAMERA",
+              "PHONE_CAMERA",
               "CALENDAR",
               "LOCATION",
               "BACKGROUND_LOCATION",
               "READ_NOTIFICATIONS",
               "POST_NOTIFICATIONS"
             ],
-            "description": "Permission type"
+            "description": "Permission type. CAMERA is the glasses camera; PHONE_CAMERA is this phone's own camera, which only a miniapp that publishes video from the phone needs."
           },
           "required": {
             "type": "boolean",
