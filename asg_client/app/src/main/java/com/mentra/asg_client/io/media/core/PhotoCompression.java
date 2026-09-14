@@ -2,6 +2,7 @@ package com.mentra.asg_client.io.media.core;
 
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import androidx.exifinterface.media.ExifInterface;
 import com.mentra.asg_client.AsgConstants;
 import com.mentra.asg_client.camera.lifecycle.PhotoExifMetadataWriter;
 import java.io.FileOutputStream;
@@ -27,10 +28,14 @@ enum PhotoCompression {
     return NONE;
   }
 
-  /** Re-encode the capture at the selected quality without resizing or modifying the source.
-   * BLE fallback must reuse the original capture, never this already-compressed upload copy.
+  /**
+   * Returns the file to upload. {@code NONE} uploads the untouched capture, so every EXIF tag the
+   * camera wrote (orientation included) survives. Other levels re-encode at {@link #jpegQuality}
+   * without resizing and carry the orientation and IMU metadata over, because a decoded bitmap
+   * loses the EXIF block. BLE fallback must reuse the original capture, never the upload copy.
    */
-  void encodeUpload(String originalPath, String uploadPath) throws IOException {
+  String prepareUpload(String originalPath, String uploadPath) throws IOException {
+    if (this == NONE) return originalPath;
     Bitmap source = BitmapFactory.decodeFile(originalPath);
     if (source == null) throw new IOException("Could not decode photo for upload");
     try (FileOutputStream output = new FileOutputStream(uploadPath)) {
@@ -40,6 +45,16 @@ enum PhotoCompression {
     } finally {
       source.recycle();
     }
+    copyOrientation(originalPath, uploadPath);
     PhotoExifMetadataWriter.copyImuMetadata(originalPath, uploadPath);
+    return uploadPath;
+  }
+
+  private static void copyOrientation(String sourcePath, String destPath) throws IOException {
+    String orientation = new ExifInterface(sourcePath).getAttribute(ExifInterface.TAG_ORIENTATION);
+    if (orientation == null) return;
+    ExifInterface dest = new ExifInterface(destPath);
+    dest.setAttribute(ExifInterface.TAG_ORIENTATION, orientation);
+    dest.saveAttributes();
   }
 }

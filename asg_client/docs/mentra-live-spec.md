@@ -132,8 +132,10 @@ owns the camera; or while USB webcam capture is active. Busy persistent changes 
 Override release/expiry retains ownership until the saved crop can be restored safely.
 Direct-upload and BLE JPEG encoding share one `compress` policy: `none` = Q95, `low` = Q88,
 `medium` = Q78, and `high` = Q60 (`heavy` is the legacy alias for `high`).
-Direct upload re-encodes even `none` at Q95 and keeps the captured/cropped dimensions;
-compression no longer applies an extra 75% or 50% resize. The size tier independently
+Direct upload sends the untouched capture for `none`, so the camera's EXIF block
+(orientation included) is preserved; the other levels re-encode at the captured/cropped
+dimensions and carry the orientation and IMU tags over. Compression no longer applies an
+extra 75% or 50% resize. The size tier independently
 controls pixel limits, including the existing BLE-specific caps. Wi-Fi fallback reuses
 the original capture and the same quality, never the already-compressed upload copy.
 Warm-camera leases default to 15 seconds and support requested holds up to 5 minutes.

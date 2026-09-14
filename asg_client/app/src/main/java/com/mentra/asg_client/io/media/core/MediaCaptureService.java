@@ -3998,20 +3998,26 @@ public class MediaCaptureService {
         }
         Log.d(TAG, "📸 Processing photo upload with SDK compression setting: " + compress);
 
+        PhotoCompression policy = PhotoCompression.fromValue(compress);
+        if (policy == PhotoCompression.NONE) {
+            // The untouched capture keeps the camera's EXIF block, orientation included.
+            performDirectUpload(uploadPath, requestId, webhookUrl, authToken);
+            return;
+        }
         sendPhotoStatus(requestId, "compressing");
-        compressImageForUpload(uploadPath, requestId, webhookUrl, authToken, compress);
+        compressImageForUpload(uploadPath, requestId, webhookUrl, authToken, policy);
     }
 
-    /** Apply the same JPEG quality as BLE, including none (Q95), without extra resizing. */
+    /** Apply the same JPEG quality as BLE without extra resizing. */
     private void compressImageForUpload(
-        String originalPath, String requestId, String webhookUrl, String authToken, String compress) {
+        String originalPath, String requestId, String webhookUrl, String authToken,
+        PhotoCompression policy) {
       new Thread(() -> {
         String compressedPath = originalPath + ".upload.jpg";
         try {
           // Size/crop belong to capture and transport policy, not compression strength.
-          // Always encode, including none, so Wi-Fi availability cannot change JPEG quality.
-          PhotoCompression.fromValue(compress).encodeUpload(originalPath, compressedPath);
-          performDirectUpload(compressedPath, requestId, webhookUrl, authToken);
+          performDirectUpload(
+              policy.prepareUpload(originalPath, compressedPath), requestId, webhookUrl, authToken);
         } catch (Exception e) {
           Log.e(TAG, "Photo compression failed: " + requestId, e);
           sendPhotoErrorResponse(requestId, "COMPRESSION_FAILED", e.getMessage());

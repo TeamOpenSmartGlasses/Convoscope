@@ -4,6 +4,7 @@ import static org.junit.Assert.*;
 
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import androidx.exifinterface.media.ExifInterface;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.nio.file.Files;
@@ -40,7 +41,14 @@ public class PhotoCompressionTest {
       PhotoCompression policy = PhotoCompression.fromValue(spellings[i]);
       assertEquals(qualities[i], policy.jpegQuality);
       File upload = files.newFile(spellings[i] + ".jpg");
-      policy.encodeUpload(original.getPath(), upload.getPath());
+      String uploaded = policy.prepareUpload(original.getPath(), upload.getPath());
+      if (policy == PhotoCompression.NONE) {
+        // none uploads the capture itself; only the BLE resize forces a Q95 re-encode.
+        assertEquals(original.getPath(), uploaded);
+        assertEquals(0, upload.length());
+        continue;
+      }
+      assertEquals(upload.getPath(), uploaded);
       byte[] direct = Files.readAllBytes(upload.toPath());
       Bitmap ramCapture = BitmapFactory.decodeByteArray(capturedBytes, 0, capturedBytes.length);
       Bitmap fallbackCapture = BitmapFactory.decodeFile(original.getPath());
@@ -63,6 +71,27 @@ public class PhotoCompressionTest {
         fallbackCapture.recycle();
       }
     }
+  }
+
+  @Test
+  public void reencodedUploadKeepsExifOrientation() throws Exception {
+    Bitmap sensor = Bitmap.createBitmap(40, 20, Bitmap.Config.ARGB_8888);
+    File original = files.newFile("rotated.jpg");
+    try (java.io.FileOutputStream out = new java.io.FileOutputStream(original)) {
+      assertTrue(sensor.compress(Bitmap.CompressFormat.JPEG, 100, out));
+    }
+    sensor.recycle();
+    ExifInterface exif = new ExifInterface(original.getPath());
+    exif.setAttribute(ExifInterface.TAG_ORIENTATION,
+        String.valueOf(ExifInterface.ORIENTATION_ROTATE_90));
+    exif.saveAttributes();
+
+    File upload = files.newFile("rotated-low.jpg");
+    PhotoCompression.LOW.prepareUpload(original.getPath(), upload.getPath());
+
+    assertEquals(ExifInterface.ORIENTATION_ROTATE_90,
+        new ExifInterface(upload.getPath()).getAttributeInt(
+            ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_UNDEFINED));
   }
 
   @Test
