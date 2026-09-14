@@ -108,17 +108,17 @@ test("Internal App Sharing publications carry the Play download link for the exa
     certificateFingerprint: "AA:BB",
   }
   const record = createAndroidRecord({...input, internalSharing})
-  assert.equal(
-    record.publications.mentraos["google-play"].coordinate,
-    "com.mentra.mentra:310000057:internal-app-sharing",
-  )
-  assert.equal(record.publications.mentraos["google-play"].url, internalSharing.downloadUrl)
-  assert.throws(() => createAndroidRecord(input), /does not match the built AAB/)
-  assert.throws(
-    () => createAndroidRecord({...input, internalSharing: {...internalSharing, sha256: "0".repeat(64)}}),
-    /does not match the built AAB/,
-  )
+  const google = record.publications.mentraos["google-play"]
+  assert.equal(google.coordinate, "com.mentra.mentra:310000057:internal-app-sharing")
+  assert.equal(google.url, internalSharing.downloadUrl)
+  assert.equal(google.sha256, aabSha256)
+  assert.deepEqual(google.playArtifact, {sha256: aabSha256, certificateFingerprint: "AA:BB"})
+  // Play's digest describes the artifact it generated; a different value is kept, not refused.
+  const generated = createAndroidRecord({...input, internalSharing: {...internalSharing, sha256: "0".repeat(64)}})
+  assert.equal(generated.publications.mentraos["google-play"].playArtifact.sha256, "0".repeat(64))
+  assert.throws(() => createAndroidRecord(input), /no HTTPS download URL/)
   assert.throws(() => createAndroidRecord({...input, playTrack: "production", internalSharing}), /does not belong/)
   const dryRun = createAndroidRecord({...input, storeStatus: "built"})
   assert.equal(dryRun.publications.mentraos["google-play"].url, "https://play.google.com/console/")
+  assert.equal(dryRun.publications.mentraos["google-play"].playArtifact, undefined)
 })
