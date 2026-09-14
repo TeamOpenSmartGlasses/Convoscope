@@ -287,3 +287,39 @@ test("a condition must point at a required enum that offers the listed values", 
   unknownValue.requiredAnyOf[0].requiredWhen = {key: "STORAGE_PROVIDER", values: ["gcs"]}
   assert.throws(() => validateContractCoverage(unknownValue, []), /conditional on STORAGE_PROVIDER/)
 })
+
+test("key material is never mistaken for a placeholder, whatever its base64 body spells", () => {
+  // Generate until the public body contains "tbd" (case-insensitively), which
+  // random base64 does every few keys.
+  let pair = generateKeyPairSync("ed25519")
+  let body = pair.publicKey.export({type: "spki", format: "der"}).toString("base64")
+  for (let attempt = 0; attempt < 5000 && !/tbd|localhost/i.test(body); attempt += 1) {
+    pair = generateKeyPairSync("ed25519")
+    body = pair.publicKey.export({type: "spki", format: "der"}).toString("base64")
+  }
+  assert.match(body, /tbd|localhost/i)
+  const pairContract = {
+    schemaVersion: 1,
+    contractVersion: "test",
+    required: {PRIVATE_KEY: {kind: "private-key"}, PUBLIC_KEY: {kind: "public-key"}},
+    keyPairs: [{id: "pair", privateKey: "PRIVATE_KEY", publicKey: "PUBLIC_KEY", acceptanceTest: "auth"}],
+  }
+  const result = validateProductionCloudConfig({
+    contract: pairContract,
+    environment: "prod",
+    values: {
+      PRIVATE_KEY: pair.privateKey.export({type: "pkcs8", format: "der"}).toString("base64"),
+      PUBLIC_KEY: body,
+    },
+  })
+  assert.equal(result.checks.find((check) => check.id === "pair").status, "pass")
+  assert.throws(
+    () =>
+      validateProductionCloudConfig({
+        contract: {schemaVersion: 1, contractVersion: "test", required: {NAME: {kind: "string"}}},
+        environment: "prod",
+        values: {NAME: "tbd-later"},
+      }),
+    /placeholder or local value/,
+  )
+})

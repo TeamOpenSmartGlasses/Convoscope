@@ -209,6 +209,41 @@ test("allocates from the family container only, never from the stores", () => {
   assert.throws(() => prepare({currentFamilyAssets: []}), /does not record the current public build/)
 })
 
+test("a coordinated current app that predates the formula is frozen store-observed and needs a family above Play's code", () => {
+  // A 3.0.0 release shipped with a timestamp number: no 3.0.0-window number
+  // installs over it, so there is no compatibility lab; Phase 5 still verifies
+  // the store app. The 3.1.x candidate is above Play's 50572796.
+  const legacyManifest = {...previousManifest, native: {marketingVersion: "3.0.0", buildNumber: 50572796}}
+  const {productionPlan, record} = prepare({
+    previousManifest: legacyManifest,
+    mentraInventory: inventory("com.mentra.mentra", {marketingVersion: "3.0.0", buildNumber: 50572796}, n(60), n(59)),
+    currentFamilyAssets: null,
+  })
+  assert.equal(record.coordinates.currentMentraApp.provenance, "store-observed")
+  assert.equal(record.coordinates.currentMentraApp.sourceCommit, null)
+  assert.equal(record.coordinates.compatibilityLab, null)
+  assert.equal(record.state, "staging-compatible")
+  assert.equal(productionPlan.native.buildNumber, n(58))
+
+  // A flat 310000213 in production sits above the whole 3.1.x window: the
+  // candidate cannot exceed it and the error says what would.
+  const flatManifest = {...previousManifest, native: {marketingVersion: "3.0.0", buildNumber: 310000213}}
+  assert.throws(
+    () =>
+      prepare({
+        previousManifest: flatManifest,
+        mentraInventory: inventory(
+          "com.mentra.mentra",
+          {marketingVersion: "3.0.0", buildNumber: 310000213},
+          n(60),
+          n(59),
+        ),
+        currentFamilyAssets: null,
+      }),
+    /not above the Google Play production version code 310000213; release under a family base version whose window lies above that code/,
+  )
+})
+
 test("first promotion still requires a public app in both stores", () => {
   assert.throws(
     () =>
