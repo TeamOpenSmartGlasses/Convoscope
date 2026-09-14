@@ -130,17 +130,28 @@ same gate. An unchanged crop never restarts the HAL. A changed crop is rejected 
 while a publisher is pending, live, or reconnecting; while a photo/video or warm-camera service
 owns the camera; or while USB webcam capture is active. Busy persistent changes are not saved.
 Override release/expiry retains ownership until the saved crop can be restored safely.
-BLE JPEG encoding honors `compress`: `none` = Q95, `low` = Q88,
-`medium` = Q78, and `high` = Q60. The size tier independently controls pixel limits.
+Direct-upload and BLE JPEG encoding share one `compress` policy: `none` = Q95, `low` = Q88,
+`medium` = Q78, and `high` = Q60 (`heavy` is the legacy alias for `high`).
+Direct upload re-encodes every level, including omitted/`none` compression at Q95,
+at the captured/cropped dimensions and carries EXIF orientation, IMU data, and capture ID
+over. The original capture's size-dependent JPEG quality does not override this delivery
+policy. Compression no longer applies an extra 75% or 50% resize. The size tier independently
+controls pixel limits, including the existing BLE-specific caps. Wi-Fi fallback reuses
+the original capture and the same quality, never the already-compressed upload copy.
 Warm-camera leases default to 15 seconds and support requested holds up to 5 minutes.
 FOV `ready` acknowledgments wait for delayed camera tuning to finish, its subsequent
 restart cooldown, and Camera2 camera
 re-registration (including readable characteristics). If registration does not recover
 within 20 seconds, glasses return `camera_unavailable` instead of reporting ready.
-Incoming FOV commands queue in arrival order while registration is pending. A completed
-update with a queued successor returns `status: error`, `ready: false`, and
+FOV commands have one active update and one pending slot. A new pending command replaces
+and immediately rejects the previous pending command as `fov_superseded`, without applying
+it. This applies to persistent settings, overrides, and releases. A completed
+update with a pending successor returns `status: error`, `ready: false`, and
 `error_code: fov_superseded` before the successor starts; only the final update reports
-ready. Registration timeout also fails queued updates, and lease expiry restoration waits
+ready. Registration timeout also fails the pending update. Android and iOS SDK FOV calls allow
+45 seconds: at most two 20-second readiness waits plus a 5-second BLE delivery margin
+(`AsgConstants.CAMERA_FOV_REQUEST_TIMEOUT_MS`, mirrored in both SDK facades). Other
+settings retain their 15-second deadline. Lease expiry restoration waits
 behind active updates. Duplicate lease refreshes use the same readiness gate.
 On miniapp exit the phone orders release after its capture cleanup, stops renewing a rejected
 release, and retries release on reconnect. The existing ASG lease TTL bounds abandoned ownership;

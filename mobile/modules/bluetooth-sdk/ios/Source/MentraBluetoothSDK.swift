@@ -232,6 +232,12 @@ final class PendingResponse<T> {
 
 @MainActor
 public final class MentraBluetoothSDK {
+    // Mirrors AsgConstants: one active + one coalesced pending FOV update, plus BLE margin.
+    // Keep in sync with Android MentraBluetoothSdk and the ASG readiness budget.
+    private static let cameraFovReadyTimeoutMs = 20000
+    private static let cameraFovDeliveryMarginMs = 5000
+    private static let cameraFovRequestTimeoutMs =
+        2 * cameraFovReadyTimeoutMs + cameraFovDeliveryMarginMs
     private static let wifiScanTimeoutMs = 20000
     // A photo response is terminal only after capture, encoding, transport, and upload.
     // Max-quality BLE fallback can legitimately exceed the generic command deadline.
@@ -638,7 +644,9 @@ public final class MentraBluetoothSDK {
         pendingSettingsRequests[requestId] = pending
         do {
             try send(requestId)
-            let ack = try await pending.wait()
+            let timeoutMs = (setting == "camera_fov" || setting == "camera_fov_override")
+                ? Self.cameraFovRequestTimeoutMs : 15000
+            let ack = try await pending.wait(timeoutMs: timeoutMs)
             updateStore(ack)
             pendingSettingsRequests.removeValue(forKey: requestId)
             return ack

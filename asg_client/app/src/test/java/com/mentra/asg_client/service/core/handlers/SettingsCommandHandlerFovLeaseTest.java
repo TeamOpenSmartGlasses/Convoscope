@@ -194,6 +194,100 @@ public class SettingsCommandHandlerFovLeaseTest {
         assertThat(responses.get(0).getString("status")).isEqualTo("ready");
     }
 
+    @Test
+    public void pendingUpdatesCoalesceImmediatelyAndOnlyLatestRestarts() throws Exception {
+      Context context = mock(Context.class);
+      ISystemController system = mock(ISystemController.class);
+      when(serviceManager.getContext()).thenReturn(context);
+      when(serviceManager.getAsgSettings()).thenReturn(mock(AsgSettings.class));
+      registerCamera(context);
+      try (MockedStatic<DevApi> hardware = mockStatic(DevApi.class);
+          MockedStatic<SystemControllerFactory> controllers = mockStatic(SystemControllerFactory.class)) {
+        controllers.when(() -> SystemControllerFactory.get(context)).thenReturn(system);
+        handler.handleCommand("camera_fov_setting", fovRequest("first", 70));
+        handler.handleCommand("camera_fov_setting", fovRequest("discarded", 80));
+        handler.handleCommand("camera_fov_setting", fovRequest("latest", 90));
+        assertThat(responses).hasSize(1);
+        assertThat(responses.get(0).getString("request_id")).isEqualTo("discarded");
+        assertThat(responses.get(0).getString("error_code")).isEqualTo("fov_superseded");
+        finishFovUpdate();
+        assertThat(responses.get(1).getString("request_id")).isEqualTo("first");
+        assertThat(responses.get(1).getString("error_code")).isEqualTo("fov_superseded");
+        finishFovUpdate();
+        assertThat(responses).hasSize(3);
+        assertThat(responses.get(2).getString("request_id")).isEqualTo("latest");
+        assertThat(responses.get(2).getString("status")).isEqualTo("ready");
+        hardware.verify(() -> DevApi.setCameraFov(80, 0), never());
+        hardware.verify(() -> DevApi.setCameraFov(90, 0), times(1));
+        verify(system, times(2)).restartCameraHal();
+      }
+    }
+
+    @Test
+    public void queuedRegistrationRecoveryFitsTheSdkBudget() throws Exception {
+      Context context = mock(Context.class);
+      CameraManager camera = mock(CameraManager.class);
+      ISystemController system = mock(ISystemController.class);
+      when(serviceManager.getContext()).thenReturn(context);
+      when(serviceManager.getAsgSettings()).thenReturn(mock(AsgSettings.class));
+      when(context.getSystemService(Context.CAMERA_SERVICE)).thenReturn(camera);
+      when(camera.getCameraIdList()).thenReturn(new String[0]);
+      long start = android.os.SystemClock.elapsedRealtime();
+      try (MockedStatic<DevApi> hardware = mockStatic(DevApi.class);
+          MockedStatic<SystemControllerFactory> controllers = mockStatic(SystemControllerFactory.class)) {
+        controllers.when(() -> SystemControllerFactory.get(context)).thenReturn(system);
+        handler.handleCommand("camera_fov_setting", fovRequest("slow-first", 71));
+        handler.handleCommand("camera_fov_setting", fovRequest("slow-latest", 91));
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(19));
+        assertThat(responses).isEmpty();
+        when(camera.getCameraIdList()).thenReturn(new String[] {"0"});
+        when(camera.getCameraCharacteristics("0")).thenReturn(mock(CameraCharacteristics.class));
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(250));
+        when(camera.getCameraIdList()).thenReturn(new String[0]);
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(19));
+        assertThat(responses).hasSize(1);
+        when(camera.getCameraIdList()).thenReturn(new String[] {"0"});
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(250));
+        assertThat(responses).hasSize(2);
+        assertThat(responses.get(1).getString("request_id")).isEqualTo("slow-latest");
+        assertThat(responses.get(1).getString("status")).isEqualTo("ready");
+        assertThat(android.os.SystemClock.elapsedRealtime() - start)
+            .isLessThan(AsgConstants.CAMERA_FOV_REQUEST_TIMEOUT_MS);
+      }
+    }
+
+    @Test
+    public void registrationTimeoutRejectsActiveAndLatestWithoutStartingAnotherRestart() throws Exception {
+      Context context = mock(Context.class);
+      CameraManager camera = mock(CameraManager.class);
+      ISystemController system = mock(ISystemController.class);
+      when(serviceManager.getContext()).thenReturn(context);
+      when(serviceManager.getAsgSettings()).thenReturn(mock(AsgSettings.class));
+      when(context.getSystemService(Context.CAMERA_SERVICE)).thenReturn(camera);
+      when(camera.getCameraIdList()).thenReturn(new String[0]);
+      try (MockedStatic<DevApi> hardware = mockStatic(DevApi.class);
+          MockedStatic<SystemControllerFactory> controllers = mockStatic(SystemControllerFactory.class)) {
+        controllers.when(() -> SystemControllerFactory.get(context)).thenReturn(system);
+        handler.handleCommand("camera_fov_setting", fovRequest("timeout", 72));
+        handler.handleCommand("camera_fov_override", overrideRequest("discarded-lease"));
+        handler.handleCommand("camera_fov_override_release", releaseRequest("discarded-lease"));
+        assertThat(responses).hasSize(1);
+        assertThat(responses.get(0).getString("error_code")).isEqualTo("fov_superseded");
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(
+            Duration.ofMillis(AsgConstants.CAMERA_FOV_READY_TIMEOUT_MS));
+        assertThat(responses).hasSize(3);
+        assertThat(responses.get(1).getString("error_code")).isEqualTo("camera_unavailable");
+        assertThat(responses.get(2).getString("error_code")).isEqualTo("camera_unavailable");
+        verify(system, times(1)).restartCameraHal();
+        hardware.verify(() -> DevApi.setCameraFov(82, 1), never());
+      }
+    }
+
+    private static JSONObject fovRequest(String requestId, int fov) throws Exception {
+      return new JSONObject().put("request_id", requestId)
+          .put("params", new JSONObject().put("fov", fov).put("roi_position", 0));
+    }
+
     private void registerCamera(Context context) throws Exception {
         CameraManager camera = mock(CameraManager.class);
         when(context.getSystemService(Context.CAMERA_SERVICE)).thenReturn(camera);
