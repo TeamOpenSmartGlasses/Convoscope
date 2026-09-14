@@ -89,6 +89,21 @@ module.exports = ({config}: ConfigContext): Partial<ExpoConfig> => {
 
   return {
     ...config,
+    ...(process.env.MENTRA_PR_APK_FINGERPRINT
+      ? {
+          extra: {
+            ...config.extra,
+            mentraPrBuild: {
+              schemaVersion: 1,
+              mobileFingerprint: process.env.MENTRA_PR_APK_FINGERPRINT,
+              mobileSourceCommit: process.env.GITHUB_SHA,
+              // Expo's config serializer transforms nested nulls; keep the
+              // unconfigured intermediate explicit until CI packages its pin.
+              otaManifestUrl: "",
+            },
+          },
+        }
+      : {}),
     name: appName,
     slug: "Mentra",
     // Coordinated prereleases expose their full identity (for example,
