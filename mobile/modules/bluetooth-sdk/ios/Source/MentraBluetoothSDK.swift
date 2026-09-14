@@ -239,9 +239,18 @@ public final class MentraBluetoothSDK {
     private static let cameraFovRequestTimeoutMs =
         2 * cameraFovReadyTimeoutMs + cameraFovDeliveryMarginMs
     private static let wifiScanTimeoutMs = 20000
-    // A photo response is terminal only after capture, encoding, transport, and upload.
-    // Max-quality BLE fallback can legitimately exceed the generic command deadline.
+    /// A photo response is terminal only after capture, encoding, transport, and upload.
+    /// Max-quality BLE fallback can legitimately exceed the generic command deadline.
     private static let photoRequestTimeoutMs = 30000
+    // Mirrors AsgConstants.PHOTO_THUMBNAIL_REQUEST_TIMEOUT_MS and the Android facade.
+    // Reserve capture, preview ACK/retries, full delivery, then terminal-event transit.
+    private static let photoCaptureTimeoutMs = 45000
+    private static let photoThumbnailTimeoutSeconds = 30
+    private static let photoDeliveryTimeoutMs = 30000
+    private static let photoResponseMarginMs = 5000
+    private static let photoThumbnailRequestTimeoutMs =
+        photoCaptureTimeoutMs + photoThumbnailTimeoutSeconds * 1000
+            + photoDeliveryTimeoutMs + photoResponseMarginMs
     private static let otaBesVersionWaitMs = 5000
     private static let otaMtkVersionWaitMs = 2000
     private static let otaVersionPollMs = 100
@@ -1095,7 +1104,9 @@ public final class MentraBluetoothSDK {
         pendingPhotoRequests[routedRequest.requestId] = pending
         DeviceManager.shared.requestPhoto(routedRequest)
         do {
-            let event = try await pending.wait(timeoutMs: MentraBluetoothSDK.photoRequestTimeoutMs)
+            let event = try await pending.wait(timeoutMs: routedRequest.presendThumbnail
+                ? MentraBluetoothSDK.photoThumbnailRequestTimeoutMs
+                : MentraBluetoothSDK.photoRequestTimeoutMs)
             pendingPhotoRequests.removeValue(forKey: routedRequest.requestId)
             return event
         } catch {

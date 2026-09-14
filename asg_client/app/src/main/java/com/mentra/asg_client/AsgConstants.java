@@ -433,6 +433,17 @@ public class AsgConstants {
     /** Bound the preview's wait for phone acknowledgement before starting full delivery. */
     public static final int PHOTO_THUMBNAIL_TIMEOUT_SECONDS = 30;
 
+  /** Full-image delivery allowance after the preview ACK (includes upload or BLE fallback). */
+  public static final long PHOTO_DELIVERY_TIMEOUT_MS = 30_000L;
+  /** Glasses job budget: capture + preview transfer/retries + full delivery, without timer resets. */
+  public static final long PHOTO_THUMBNAIL_JOB_TIMEOUT_MS =
+      PHOTO_CAPTURE_TIMEOUT_MS + PHOTO_THUMBNAIL_TIMEOUT_SECONDS * 1000L + PHOTO_DELIVERY_TIMEOUT_MS;
+  /** Command/terminal-event transit margin; mirrored by both Bluetooth SDK facades. */
+  public static final long PHOTO_RESPONSE_MARGIN_MS = 5_000L;
+  /** SDK end-to-end deadline. Keep Android/iOS MentraBluetoothSDK photo constants in sync. */
+  public static final long PHOTO_THUMBNAIL_REQUEST_TIMEOUT_MS =
+      PHOTO_THUMBNAIL_JOB_TIMEOUT_MS + PHOTO_RESPONSE_MARGIN_MS;
+
     /**
      * ZSL preview/capture buffering kill switch. Disable only as an emergency; normal photo capture
      * uses ZSL by default.

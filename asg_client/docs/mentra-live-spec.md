@@ -90,6 +90,17 @@ aspect ratio, never upscales, and is capped at a 500-pixel long edge at JPEG
 quality 50. It requires an upload target and does not replace the full photo or
 complete the capture request. Full-image BLE transmission waits for the preview
 acknowledgement; a failed or timed-out preview fails the opted-in request.
+Preview pixels use the full delivered image's display orientation: direct-upload
+previews apply the upload source's EXIF rotation/mirroring. BLE previews and full
+images normalize the source EXIF transform into their pixels (including RAM-first,
+grayscale, and Wi-Fi fallback after a direct preview). Previews need no EXIF-aware renderer.
+Direct full uploads continue preserving EXIF orientation and IMU metadata.
+The opted-in request has one end-to-end SDK deadline of 110 seconds: 45 seconds
+for capture + 30 seconds for preview transfer/retries and ACK + 30 seconds for
+full delivery + 5 seconds for command/terminal-event transit. The glasses job
+watchdog is 105 seconds from admission; progress and preview ACK do not reset it.
+The constants live in `AsgConstants` and are mirrored in both native Bluetooth
+SDK facades. Ordinary SDK photo requests retain their 30-second deadline.
 Requests that omit the option retain their existing transfer behavior.
 
 - **Short camera-button press**: takes a photo unless video is currently recording, in which case it stops the recording.

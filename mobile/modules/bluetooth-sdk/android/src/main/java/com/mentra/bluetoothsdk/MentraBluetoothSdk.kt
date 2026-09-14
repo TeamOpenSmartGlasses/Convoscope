@@ -109,6 +109,15 @@ class MentraBluetoothSdk private constructor(
         // A photo response is terminal only after capture, encoding, transport, and upload.
         // Max-quality BLE fallback can legitimately exceed the generic command deadline.
         private const val PHOTO_REQUEST_TIMEOUT_MS = 30_000L
+        // Mirrors AsgConstants.PHOTO_THUMBNAIL_REQUEST_TIMEOUT_MS and the iOS facade.
+        // Reserve capture, preview ACK/retries, full delivery, then terminal-event transit.
+        private const val PHOTO_CAPTURE_TIMEOUT_MS = 45_000L
+        private const val PHOTO_THUMBNAIL_TIMEOUT_SECONDS = 30L
+        private const val PHOTO_DELIVERY_TIMEOUT_MS = 30_000L
+        private const val PHOTO_RESPONSE_MARGIN_MS = 5_000L
+        private const val PHOTO_THUMBNAIL_REQUEST_TIMEOUT_MS =
+            PHOTO_CAPTURE_TIMEOUT_MS + PHOTO_THUMBNAIL_TIMEOUT_SECONDS * 1000L +
+                PHOTO_DELIVERY_TIMEOUT_MS + PHOTO_RESPONSE_MARGIN_MS
         private const val WIFI_SCAN_TIMEOUT_MS = 20_000L
         private const val VIDEO_UPLOAD_STOP_TIMEOUT_MS = 10 * 60 * 1000L
         private const val STREAM_START_TIMEOUT_MS = 30_000L
@@ -1063,7 +1072,9 @@ class MentraBluetoothSdk private constructor(
         pendingPhotoRequests[routedRequest.requestId] = pending
         try {
             deviceManager.requestPhoto(routedRequest)
-            return pending.await(PHOTO_REQUEST_TIMEOUT_MS)
+            return pending.await(
+                if (routedRequest.presendThumbnail) PHOTO_THUMBNAIL_REQUEST_TIMEOUT_MS else PHOTO_REQUEST_TIMEOUT_MS,
+            )
         } finally {
             pendingPhotoRequests.remove(routedRequest.requestId, pending)
         }

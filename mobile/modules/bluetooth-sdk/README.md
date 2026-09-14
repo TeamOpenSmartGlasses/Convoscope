@@ -583,14 +583,20 @@ const photo = await BluetoothSdk.requestPhoto({
 console.log("photo delivered", photo.photoUrl ?? photo.uploadUrl, photo.fileSizeBytes)
 ```
 
-`requestPhoto(...)` resolves only after the full photo action reaches terminal success: capture completed and the photo was delivered to the webhook, either directly from the glasses over Wi-Fi or through the phone's Bluetooth fallback relay. If you omit `requestId`, the SDK generates one and the terminal response includes it. It rejects if the ASG reports `state: "error"`, if phone-side fallback upload fails, if the SDK cannot send the command, or if no terminal `photo_response` arrives within 30 seconds. Photo requests use this longer operation-specific deadline because max-quality BLE fallback can legitimately exceed the 15-second deadline used by ordinary commands. Use `photo_status` for intermediate stages such as `accepted`, `configuring`, `capturing`, `captured`, `uploading`, `ble_fallback_compression`, `ready_for_transfer`, and `transferring`; `photo_status` is progress, while `photo_response` is terminal success/error. The raw `photo_response` event stream still includes both success and error events for subscribers. The webhook should accept multipart form data with a `photo` file and `requestId`. If `authToken` is provided, the uploader adds `Authorization: Bearer <token>`. The camera light is always enabled for photo capture.
+`requestPhoto(...)` resolves only after the full photo action reaches terminal success: capture completed and the photo was delivered to the webhook, either directly from the glasses over Wi-Fi or through the phone's Bluetooth fallback relay. If you omit `requestId`, the SDK generates one and the terminal response includes it. It rejects if the ASG reports `state: "error"`, if phone-side fallback upload fails, if the SDK cannot send the command, or if no terminal `photo_response` arrives within 30 seconds (110 seconds when `presend_thumbnail` is enabled). Photo requests use this longer operation-specific deadline because max-quality BLE fallback can legitimately exceed the 15-second deadline used by ordinary commands. Use `photo_status` for intermediate stages such as `accepted`, `configuring`, `capturing`, `captured`, `uploading`, `ble_fallback_compression`, `ready_for_transfer`, and `transferring`; `photo_status` is progress, while `photo_response` is terminal success/error. The raw `photo_response` event stream still includes both success and error events for subscribers. The webhook should accept multipart form data with a `photo` file and `requestId`. If `authToken` is provided, the uploader adds `Authorization: Bearer <token>`. The camera light is always enabled for photo capture.
 
 Set `presend_thumbnail: true` to receive a JPEG preview over Bluetooth before the
 full photo (default: `false`). Listen for `photo_status` with
 `status: "thumbnail_received"`; `thumbnailUrl` is a JPEG data URI and
 `fileSizeBytes` is the preview size. The preview preserves aspect ratio, is at
 most 500 pixels on its longest edge, never upscales, and uses JPEG quality 50.
+Preview pixels match the full delivered image's display orientation, including
+EXIF rotation/mirroring on direct uploads; no EXIF-aware preview renderer is needed.
 It does not resolve `requestPhoto()` or replace the full webhook delivery.
+The opted-in end-to-end deadline is 110 seconds: capture (45) + preview
+transfer/retries and ACK (30) + full delivery (30) + response transit margin (5).
+Both native SDK facades mirror ASG's constants; the glasses job watchdog is 105
+seconds. Progress and preview ACK never restart these timers.
 An upload target is required; save-only capture does not support previews.
 Compatible ASG firmware is required; older firmware may ignore this option.
 

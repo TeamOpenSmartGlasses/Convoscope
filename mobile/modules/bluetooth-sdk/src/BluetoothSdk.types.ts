@@ -658,7 +658,10 @@ export type MicPreference = "auto" | "phone" | "glasses" | "bluetooth"
 export type MicMode = "phone" | "glasses" | "bluetoothClassic" | "bluetooth"
 
 export type PhotoRequestParams = {
-  /** Send a <=500px, quality-50 JPEG preview over BLE before the full photo. Default false. */
+  /**
+   * Send an oriented <=500px, quality-50 JPEG preview before the full photo. Default false.
+   * Enables a 110-second end-to-end native deadline (ordinary requests: 30 seconds).
+   */
   presend_thumbnail?: boolean
   requestId?: string
   appId?: string

@@ -620,9 +620,9 @@ public class MediaCaptureService {
     }
 
     /** Runs on the photo worker, never on the command thread that receives the acknowledgement. */
-    private void presendThumbnail(android.graphics.Bitmap source, String requestId)
+    private void presendThumbnail(android.graphics.Bitmap source, String requestId, int orientation)
             throws Exception {
-        try (ThumbnailTransfer transfer = startThumbnail(source, requestId)) {
+        try (ThumbnailTransfer transfer = startThumbnail(source, requestId, orientation)) {
             if (transfer != null) transfer.await();
         }
     }
@@ -660,12 +660,12 @@ public class MediaCaptureService {
     }
 
     /** Starts the transfer without blocking the photo worker on the phone acknowledgement. */
-    private ThumbnailTransfer startThumbnail(android.graphics.Bitmap source, String requestId)
-            throws Exception {
+    private ThumbnailTransfer startThumbnail(
+            android.graphics.Bitmap source, String requestId, int orientation) throws Exception {
         String thumbnailId = photoThumbnailIds.remove(requestId);
         if (thumbnailId == null) return null;
         long started = android.os.SystemClock.elapsedRealtime();
-        byte[] bytes = PhotoThumbnail.encode(source);
+        byte[] bytes = PhotoThumbnail.encode(source, orientation);
         long encodeMs = android.os.SystemClock.elapsedRealtime() - started;
         ThumbnailTransfer transfer = new ThumbnailTransfer(thumbnailId);
         try {
@@ -799,7 +799,6 @@ public class MediaCaptureService {
     // Safety timeout covers the full job (capture + upload/BLE-handoff). Sized to outlast a
     // slow webhook upload on flaky WiFi so we don't prematurely free the flag while the upload
     // is still grinding. Force-resets isPhotoJobInFlight if no terminal callback fires.
-    private static final long CAPTURE_SAFETY_TIMEOUT_MS = 45000; // 45 seconds
     private final Object captureSafetyTimeoutLock = new Object();
     private Runnable captureSafetyTimeout;
     private String captureSafetyTimeoutRequestId;
@@ -3218,10 +3217,13 @@ public class MediaCaptureService {
     /**
      * Start the photo-job safety timeout. If no terminal callback fires (e.g., CameraNeo crashes,
      * lock timeout, upload thread dies), force-reset isPhotoJobInFlight after
-     * CAPTURE_SAFETY_TIMEOUT_MS to prevent permanent lockout. Sized to outlast a slow webhook
-     * upload.
+     * the request budget to prevent permanent lockout. Preview requests reserve time for all
+     * three phases, and the SDK allows a small additional terminal-event transit margin.
      */
     private void startCaptureSafetyTimeout(String requestId) {
+        final long timeoutMs = photoThumbnailIds.containsKey(requestId)
+                ? AsgConstants.PHOTO_THUMBNAIL_JOB_TIMEOUT_MS
+                : AsgConstants.PHOTO_CAPTURE_TIMEOUT_MS;
         Runnable timeout =
                 new Runnable() {
                     @Override
@@ -3239,7 +3241,7 @@ public class MediaCaptureService {
                         Log.e(
                                 TAG,
                                 "⚠️ SAFETY TIMEOUT: isPhotoJobInFlight force-reset after "
-                                        + CAPTURE_SAFETY_TIMEOUT_MS
+                                        + timeoutMs
                                         + "ms - no terminal callback fired for "
                                         + requestId);
                         dumpTimings(requestId);
@@ -3254,7 +3256,7 @@ public class MediaCaptureService {
             captureSafetyTimeout = timeout;
             captureSafetyTimeoutRequestId = requestId;
         }
-        mainHandler.postDelayed(timeout, CAPTURE_SAFETY_TIMEOUT_MS);
+        mainHandler.postDelayed(timeout, timeoutMs);
     }
 
     /** Cancel the capture safety timeout (called when callback fires normally). */
@@ -3973,7 +3975,10 @@ public class MediaCaptureService {
                                         throw new java.io.IOException(
                                                 "Could not decode thumbnail source");
 
-                                    presendThumbnail(bitmap, requestId);
+                                    // The full direct upload retains this EXIF transform. Bake it into
+                                    // the preview pixels so data-URI consumers need no EXIF support.
+                                    int orientation = PhotoOrientation.read(null, uploadPath);
+                                    presendThumbnail(bitmap, requestId, orientation);
                                     processUploadWithCompression(
                                             uploadPath, requestId, webhookUrl, authToken, compress);
                                 } catch (Exception e) {
@@ -5551,6 +5556,8 @@ public class MediaCaptureService {
                                     // handoff.
                                     prepareTextModePhotoPath(originalPath, requestId);
                                 }
+                                int sourceOrientation = PhotoOrientation.read(
+                                        capturedPhoto != null ? capturedPhoto.jpegBytes : null, originalPath);
                                 boolean textSelectionAlreadyPrepared =
                                         Boolean.TRUE.equals(photoTextCropPrepared.get(requestId));
                                 boolean textCropAlreadyApplied =
@@ -5939,7 +5946,7 @@ public class MediaCaptureService {
                                     // Deliver the preview before spending time resizing/encoding
                                     // the full BLE image. Use the same crop for both images.
                                     try {
-                                        thumbnailTransfer = startThumbnail(cropped, requestId);
+                                        thumbnailTransfer = startThumbnail(cropped, requestId, sourceOrientation);
                                     } catch (Exception e) {
                                         cropped.recycle();
                                         throw e;
@@ -6030,12 +6037,19 @@ public class MediaCaptureService {
                                     // The grayscale processor fuses decode/crop/resize; color
                                     // previews have already been sent before full-image resize.
                                     if (AsgConstants.ENABLE_GRAYSCALE_BLE_PHOTOS) {
-                                        thumbnailTransfer = startThumbnail(resized, requestId);
+                                        thumbnailTransfer = startThumbnail(resized, requestId, sourceOrientation);
                                     }
                                 } catch (Exception e) {
                                     resized.recycle();
                                     throw e;
                                 }
+
+                                // BLE encoders write tagless pixels. Normalize the full image using
+                                // the same transform as the preview, also when Wi-Fi failed after an
+                                // oriented direct-upload preview was already acknowledged.
+                                android.graphics.Bitmap oriented = PhotoOrientation.apply(resized, sourceOrientation);
+                                if (oriented != resized) resized.recycle();
+                                resized = oriented;
 
                                 // 3. Encode with the policy-selected BLE codec. Text mode and
                                 // ordinary size-tier photos share this exact codec/quality
