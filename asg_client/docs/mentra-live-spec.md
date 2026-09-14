@@ -150,6 +150,10 @@ containing removed values are invalid; replace their compression with one of the
 four supported values before replaying the complete preset. There is no automatic
 migration or substitution. Fresh valid preset updates remain available.
 
+Cloud photo allocation takes no photo options: the authenticated endpoint only
+returns upload/download URLs and ignores any supplied body. The phone sends size,
+compression, sound, and gallery-saving choices to the glasses separately.
+
 Direct upload re-encodes every level, including omitted/`none` compression at Q95,
 at the captured/cropped dimensions and carries EXIF orientation, IMU data, and capture ID
 over. The original capture's size-dependent JPEG quality does not override this delivery

@@ -9,57 +9,11 @@
  * Mirrors docs/issues/002-cloud-runtime/camera/spec.md.
  */
 import { z } from "zod";
-import { photoCompressionValues } from "./photo-compression";
 export type { PhotoCompression } from "./photo-compression";
 
 // --- Managed photo ----------------------------------------------------------
 
-/** Device-canonical photo size tier (matches miniapp SDK and ASG). */
-export const photoSizeCanonicalSchema = z.enum(["low", "medium", "high", "max"]);
-export type PhotoSizeTier = z.infer<typeof photoSizeCanonicalSchema>;
-
-/** Accepted on the wire: canonical names plus legacy cloud aliases. */
-const photoSizeInputSchema = z.enum([
-  "low",
-  "medium",
-  "high",
-  "max",
-  "small",
-  "large",
-  "full",
-]);
-
-/**
- * Normalize a photo size string to the device-canonical tier.
- * Legacy aliases: small→low, large→high, full→max.
- */
-export function normalizePhotoSizeTier(value: string): PhotoSizeTier {
-  switch (value) {
-    case "small":
-      return "low";
-    case "large":
-      return "high";
-    case "full":
-      return "max";
-    case "low":
-    case "medium":
-    case "high":
-    case "max":
-      return value;
-    default:
-      throw new Error(`invalid photo size: ${value}`);
-  }
-}
-
-export const photoOptionsSchema = z.object({
-  size: photoSizeInputSchema
-    .optional()
-    .transform((value) => (value === undefined ? undefined : normalizePhotoSizeTier(value))),
-  compress: z.enum(photoCompressionValues).default("none"),
-  saveToGallery: z.boolean().optional(),
-  sound: z.boolean().optional(),
-});
-export type PhotoOptions = z.input<typeof photoOptionsSchema>;
+// Photo allocation has no request body. Capture options belong to the device.
 
 /**
  * The REST response to a photo request. The capture happens out of band (the

@@ -172,8 +172,8 @@ export class PhonePhotoCoordinator {
       throw new PhotoError("GLASSES_NOT_CONNECTED", "Glasses are not connected", "command", "ble")
     }
 
-    // Text-mode sensor resolution is owned by ASG constants; keep cloud metadata on a stable
-    // high-capacity tier and let the glasses ignore the public size when mode=text.
+    // Text-mode sensor resolution is owned by ASG constants; the glasses ignore the public
+    // size when mode=text.
     const captureSize = opts.size ?? "medium"
 
     // 1) Presign via the cloud-v2 managed-photo service. Local miniapps use
@@ -186,10 +186,7 @@ export class PhonePhotoCoordinator {
     const flowStarted = performance.now()
     try {
       const presignStarted = performance.now()
-      const r = await cloudClientService.startManagedPhoto({
-        size: opts.mode === "text" ? "max" : captureSize,
-        compress,
-      })
+      const r = await cloudClientService.startManagedPhoto()
       const presignMs = Math.round(performance.now() - presignStarted)
       if (typeof __DEV__ !== "undefined" && __DEV__) {
         console.debug(

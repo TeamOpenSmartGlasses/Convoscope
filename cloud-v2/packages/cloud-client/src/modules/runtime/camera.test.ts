@@ -38,17 +38,11 @@ describe("Camera", () => {
   });
 });
 
-test("photo compression is validated before HTTP and sent unchanged", async () => {
-  const post = mock(async (_path: string, _body: unknown) => ({ requestId: "photo-1", uploadUrl: "https://upload", readUrl: "https://read" }));
+test("allocates photo URLs without a request body", async () => {
+  const result = { requestId: "photo-1", uploadUrl: "https://upload", readUrl: "https://read" };
+  const post = mock(async (_path: string) => result);
   const camera = new Camera({ http: { post } as unknown as HttpClient });
-  for (const compress of ["none", "low", "medium", "high"] as const) {
-    await camera.startPhoto({ compress });
-    expect(post.mock.calls.at(-1)).toEqual(["/api/camera/photo", { compress }]);
-  }
-  await camera.startPhoto({});
-  expect(post.mock.calls.at(-1)).toEqual(["/api/camera/photo", { compress: "none" }]);
-  for (const compress of ["heavy", "", "HIGH", null, 1]) {
-    await expect(camera.startPhoto({ compress } as never)).rejects.toThrow("Invalid photo compression");
-  }
-  expect(post).toHaveBeenCalledTimes(5);
+
+  await expect(camera.startPhoto()).resolves.toEqual(result);
+  expect(post.mock.calls).toEqual([["/api/camera/photo"]]);
 });
