@@ -140,36 +140,31 @@ jobs:
           test -f "$key_path"
           echo "key_path=$key_path" >> "$GITHUB_OUTPUT"
 
-      - name: Read the example App Store inventory
+      # The example's build number is the next sequence of the family from the
+      # family's build container, like the Mentra App's candidate.
+      - name: Read the family build container
+        id: family
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BETA_TAG: ${{ steps.identity.outputs.beta_tag }}
         run: |
           set -euo pipefail
-          mkdir -p example-input/stores
-          node mobile/scripts/app-store-connect-build.mjs inventory \
-            --issuer-id "${{ secrets.ASC_API_ISSUER_ID }}" \
-            --key-id "${{ secrets.ASC_API_KEY_ID }}" \
-            --key-path "${{ steps.asc.outputs.key_path }}" \
-            --bundle-id "$EXAMPLE_BUNDLE_ID" \
-            --output example-input/stores/example-apple.json
-
-      # The example's Play record may not be reachable yet. The build number is
-      # then allocated from App Store Connect and the beta alone; Play itself
-      # refuses a version code it has already seen.
-      - name: Read the example Google Play inventory
-        id: google
-        continue-on-error: true
-        run: |
-          set -euo pipefail
-          mkdir -p example-input/play/fastlane
-          cp mobile/ci/fastlane-android/Fastfile mobile/ci/fastlane-android/Appfile example-input/play/fastlane/
-          cp mobile/Gemfile mobile/Gemfile.lock example-input/play/
-          cd example-input/play
-          bundle install
-          # fastlane runs the lane from inside fastlane/, so the output path must
-          # be absolute.
-          APP_PACKAGE_NAME="$EXAMPLE_BUNDLE_ID" \
-            GOOGLE_PLAY_INVENTORY_OUTPUT="$GITHUB_WORKSPACE/example-input/stores/example-google.json" \
-            bundle exec fastlane google_play_inventory
-
+          mkdir -p example-input/family
+          release_id=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/$BETA_TAG" --jq .id)
+          gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/releases/$release_id/assets?per_page=100" \
+            | jq 'add // []' > example-input/family/assets.json
+          # Markers above the beta are downloaded so a retry finds the number
+          # this example release already reserved.
+          mkdir -p example-input/family/markers
+          floor=$(jq -er .native.buildNumber example-input/beta/release-plan.json)
+          while IFS=$'\t' read -r asset_id name; do
+            [[ -z "$asset_id" ]] && continue
+            gh api -H "Accept: application/octet-stream" "repos/${GITHUB_REPOSITORY}/releases/assets/$asset_id" \
+              > "example-input/family/markers/$name"
+          done < <(jq -r --argjson floor "$floor" \
+            '.[] | select(.name | test("^mentra-build-number-[0-9]+\\.json$")) | select((.name | capture("mentra-build-number-(?<code>[0-9]+)") | .code | tonumber) > $floor) | [.id, .name] | @tsv' \
+            example-input/family/assets.json)
+          echo "release_id=$release_id" >> "$GITHUB_OUTPUT"
       # The allocated build number must survive reruns: a retry after a partial
       # upload has to reuse the plan the first run froze, not resample the
       # stores and move the candidate identity. The plan is persisted as an
@@ -212,24 +207,33 @@ jobs:
           if [[ "${{ steps.existing.outputs.found }}" == "true" ]]; then
             existing=(--existing-plan example-input/existing-plan.json)
           fi
-          google=()
-          if [[ "${{ steps.google.outcome }}" == "success" && -s example-input/stores/example-google.json ]]; then
-            google=(--google-inventory example-input/stores/example-google.json)
-          else
-            echo "Warning: the example Google Play inventory is unavailable; allocating from App Store Connect and the beta." >&2
-          fi
           node .github/scripts/production-example.mjs plan \
             --root release-source \
             --beta-plan example-input/beta/release-plan.json \
             --beta-manifest "${{ steps.beta.outputs.manifest_path }}" \
             --beta-manifest-url "${{ steps.beta.outputs.manifest_url }}" \
-            --apple-inventory example-input/stores/example-apple.json \
-            "${google[@]}" \
+            --family-assets example-input/family/assets.json \
+            --family-markers-dir example-input/family/markers \
+            --marker-directory example-output/family-build-number \
             "${existing[@]}" \
             --output release-intent/release-plan.json \
             --github-output "$GITHUB_OUTPUT"
           [[ "$(jq -er .releaseIdentity release-intent/release-plan.json)" == "${{ steps.identity.outputs.release_identity }}" ]]
           [[ "$(jq -er .sourceCommit release-intent/release-plan.json)" == "${{ steps.beta.outputs.source_commit }}" ]]
+
+      - name: Record the allocated build number in the family container
+        if: steps.existing.outputs.found != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FAMILY_RELEASE_ID: ${{ steps.family.outputs.release_id }}
+        run: |
+          set -euo pipefail
+          for marker in example-output/family-build-number/mentra-build-number-*.json; do
+            name=$(basename "$marker")
+            node .github/scripts/publish-immutable-release-asset.mjs \
+              --file "example-output/family-build-number/$name" --name "$name" \
+              --release-id "$FAMILY_RELEASE_ID" --repository "$GITHUB_REPOSITORY"
+          done
 
       - name: Allocate or reuse the stable release container
         id: container

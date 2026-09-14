@@ -10,13 +10,17 @@
 // stable release container. Nothing here promotes a store listing: the
 // example never reaches a public store from this workflow.
 import {createHash} from "node:crypto"
-import {appendFileSync, readFileSync, writeFileSync} from "node:fs"
+import {appendFileSync, mkdirSync, readFileSync, writeFileSync} from "node:fs"
 import path from "node:path"
 import {fileURLToPath} from "node:url"
 
 import {validateSelectedBeta} from "./prepare-production-promotion.mjs"
 import {buildNumberBelongsTo, createReleasePlan, loadReleaseFamily, serializeReleaseRecord} from "./release-family.mjs"
-import {allocateStoreBuildNumber} from "./store-build-numbers.mjs"
+import {
+  allocateFamilyBuildNumber,
+  familyBuildNumberMarker,
+  readMarkersDirectory,
+} from "./allocate-family-build-sequence.mjs"
 
 export const EXAMPLE_BUNDLE_ID = "com.mentra.bluetoothsdkexample"
 // iOS is distributed like a public beta: an external TestFlight group with a
@@ -39,35 +43,39 @@ function requireInteger(value, label) {
 // production candidate can never collide with the beta candidate built from
 // the same source. Google Play inventory is optional because the example's
 // Play record may not be reachable yet; Play itself refuses a reused code.
-export function allocateExampleBuildNumber({betaPlan, appleInventory, googleInventory = null}) {
-  if (appleInventory?.bundleId !== EXAMPLE_BUNDLE_ID) {
-    throw new Error(`Apple inventory does not identify ${EXAMPLE_BUNDLE_ID}`)
-  }
-  requireInteger(appleInventory.maxBuildNumber, "Apple maxBuildNumber")
-  if (googleInventory !== null) {
-    if (googleInventory?.packageName !== EXAMPLE_BUNDLE_ID) {
-      throw new Error(`Google inventory does not identify ${EXAMPLE_BUNDLE_ID}`)
-    }
-    requireInteger(googleInventory.maxVersionCode, "Google maxVersionCode")
-  }
+// The example takes the next family sequence from the family's build
+// container, like the Mentra App's candidate, so every production build of the
+// family is a distinct, ordered number regardless of which app it is.
+export function exampleBuildNumberOwner(betaPlan) {
+  return `example:mentra-${betaPlan.familyBaseVersion}`
+}
+
+export function allocateExampleBuildNumber({betaPlan, familyAssets, familyMarkers = []}) {
   if (!Number.isSafeInteger(betaPlan?.native?.buildNumber) || betaPlan.native.buildNumber < 1) {
     throw new Error("Selected beta has no native build number")
   }
-  // Same family window rule as the Mentra App: only numbers of this family
-  // count, so a stray upload cannot drag the example's numbers away, and App
-  // Store Connect's per-version rule is honoured.
   if (!buildNumberBelongsTo(betaPlan.familyBaseVersion, betaPlan.native.buildNumber)) {
     throw new Error(`Selected beta build number ${betaPlan.native.buildNumber} is outside the family window`)
   }
-  const buildNumber = allocateStoreBuildNumber({
-    marketingVersion: betaPlan.familyBaseVersion,
-    apple: appleInventory,
-    google: googleInventory,
-    atLeast: [betaPlan.native.buildNumber],
-    label: `example ${betaPlan.familyBaseVersion}`,
+  const {buildNumber} = allocateFamilyBuildNumber({
+    assets: familyAssets,
+    baseVersion: betaPlan.familyBaseVersion,
+    owner: exampleBuildNumberOwner(betaPlan),
+    markers: familyMarkers,
   })
+  if (buildNumber <= betaPlan.native.buildNumber) {
+    throw new Error(`Family container for ${betaPlan.familyBaseVersion} does not record the selected beta build`)
+  }
   if (buildNumber > ANDROID_MAX_VERSION_CODE) throw new Error("Example build number exceeds the Android-safe range")
   return buildNumber
+}
+
+export function exampleBuildNumberMarker(plan) {
+  return familyBuildNumberMarker({
+    baseVersion: plan.familyBaseVersion,
+    buildNumber: plan.native.buildNumber,
+    owner: exampleBuildNumberOwner(plan),
+  })
 }
 
 export function createProductionExamplePlan({
@@ -179,8 +187,8 @@ function main() {
     } else {
       const buildNumber = allocateExampleBuildNumber({
         betaPlan,
-        appleInventory: readJson(args["apple-inventory"]),
-        googleInventory: args["google-inventory"] ? readJson(args["google-inventory"]) : null,
+        familyAssets: readJson(args["family-assets"]),
+        familyMarkers: readMarkersDirectory(args["family-markers-dir"]),
       })
       plan = createProductionExamplePlan({
         family,
@@ -192,6 +200,14 @@ function main() {
       })
     }
     writeFileSync(path.resolve(args.output), serializeReleaseRecord(plan))
+    if (args["marker-directory"]) {
+      const marker = exampleBuildNumberMarker(plan)
+      mkdirSync(path.resolve(args["marker-directory"]), {recursive: true})
+      writeFileSync(
+        path.join(path.resolve(args["marker-directory"]), `mentra-build-number-${marker.buildNumber}.json`),
+        `${JSON.stringify(marker, null, 2)}\n`,
+      )
+    }
     output(
       {
         release_identity: plan.releaseIdentity,
