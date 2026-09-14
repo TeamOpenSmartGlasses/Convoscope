@@ -68,6 +68,35 @@ longer true — `softapVideoPolicy` starts following the profile ceiling — so 
 
 Arms: 1.0, 1.5, 2.0, 3.0 Mbps. 3.0 is the current default and the control.
 
+## The throttled arm (closes the Mentra-Call#27 review gate)
+
+Mentra-Call#27 was held on one condition that is still unmet: a pass on a genuinely degraded link
+before an encoder floor ships. The floor no longer applies to Auto, so the population the review
+worried about is out of range — but an explicitly selected cap still seeds
+`minBitrateBps: min(1 Mbps, cap)`, and on a congested link a floor tells the encoder to keep
+sending anyway. That converts graceful degradation into loss and freezes. Nobody has watched it
+happen.
+
+**Do not run this arm on SoftAP.** The floor lives in the miniapp's `toWhipVideo`, and SoftAP never
+calls it — the host `softapVideoPolicy` owns that hop. A throttled SoftAP session exercises none of
+the code under review and would close the gate on evidence that does not touch it. This arm has to
+run on **cloud WHIP with an explicit bitrate cap**, which is the only configuration where
+`minBitrateBps` reaches the encoder.
+
+1. Cloud WHIP path, 540p15, bitrate set explicitly (not Auto) — 1.0 Mbps makes the floor and the
+   cap coincide, which is the harshest case.
+2. Degrade the uplink below the floor, so the estimator and the floor genuinely disagree. Real LTE
+   at the edge of coverage is the honest test; a shaped uplink is the repeatable one.
+3. Capture as above and run a full 10–15 minutes.
+4. Repeat on Auto as the control. Auto is unfloored, so it is the graceful-degradation baseline the
+   floored run is judged against.
+
+The question is not which run has the higher bitrate — the floored one will. It is **which failure
+mode the wearer gets**. Read `acs_wire_episode` for episode count and duration, and compare the
+glasses hop (`inboundBitrateBps`) against the floor: a hop pinned at ~1 Mbps while the link cannot
+carry it is the floor overriding the estimator, and the freezes are the cost. Ship the floor only
+if the floored run is *not* worse than the Auto control on episode duration and continuity.
+
 ## Reading the result
 
 ```bash
@@ -112,7 +141,8 @@ call. The old cadence went sparse at 90 s, which is before every collapse in the
   come back thin, this is the first thing to check.
 - **`framesGated=84 pacerDrops=51`** on the long Start call: our own pacer discarding frames. Small
   next to a 40x collapse, but it is on our side of the line.
-- **Throttled-LTE validation** of the cloud-WHIP no-floor path is still untested on device.
+- **Throttled-uplink validation** of the explicit-cap floor is still untested on device. This is the
+  outstanding Mentra-Call#27 review gate, and it now has a procedure above rather than a note here.
 
 ## If all ceilings collapse
 
