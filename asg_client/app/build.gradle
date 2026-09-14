@@ -79,7 +79,7 @@ def resolveAsgVersionCode = {
     def minor = versionMatch[0][2].toInteger()
     def patch = versionMatch[0][3].toInteger()
     def committerTime = "git log -1 --format=%ct".execute(null, rootProject.projectDir).text.trim().toLong()
-    def minutes = (committerTime - (asgBuildEpochMs / 1000L)).intdiv(60L)
+    def minutes = (committerTime - asgBuildEpochMs.intdiv(1000L)).intdiv(60L)
     def sequence = 3000 + (minutes % 7000).toInteger()
     return major * 100000000 + minor * 1000000 + patch * 10000 + sequence
 }

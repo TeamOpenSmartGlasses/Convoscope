@@ -175,7 +175,7 @@
       "name": "@mentra/cloud-client",
       "version": "3.1.1",
       "dependencies": {
-        "@mentra/cloud-protocol": "3.1.0",
+        "@mentra/cloud-protocol": "3.1.1",
         "tweetnacl": "^1.0.3",
       },
       "devDependencies": {
@@ -280,11 +280,11 @@
       "name": "@mentra/engine",
       "version": "3.1.1",
       "dependencies": {
-        "@mentra/bluetooth-sdk": "3.1.0",
-        "@mentra/cloud-client": "3.1.0",
-        "@mentra/cloud-protocol": "3.1.0",
-        "@mentra/crust": "3.1.0",
-        "@mentra/miniapp": "3.1.0",
+        "@mentra/bluetooth-sdk": "3.1.1",
+        "@mentra/cloud-client": "3.1.1",
+        "@mentra/cloud-protocol": "3.1.1",
+        "@mentra/crust": "3.1.1",
+        "@mentra/miniapp": "3.1.1",
         "buffer": "^6.0.3",
         "events": "^3.3.0",
         "react-native-marked": "8.1.1",
