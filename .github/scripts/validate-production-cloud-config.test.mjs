@@ -289,15 +289,11 @@ test("a condition must point at a required enum that offers the listed values", 
 })
 
 test("key material is never mistaken for a placeholder, whatever its base64 body spells", () => {
-  // Generate until the public body contains "tbd" (case-insensitively), which
-  // random base64 does every few keys.
-  let pair = generateKeyPairSync("ed25519")
-  let body = pair.publicKey.export({type: "spki", format: "der"}).toString("base64")
-  for (let attempt = 0; attempt < 5000 && !/tbd|localhost/i.test(body); attempt += 1) {
-    pair = generateKeyPairSync("ed25519")
-    body = pair.publicKey.export({type: "spki", format: "der"}).toString("base64")
-  }
-  assert.match(body, /tbd|localhost/i)
+  // A fixed Ed25519 pair whose SPKI body happens to spell "TBD", which the
+  // placeholder scan would otherwise reject.
+  const publicBody = "MCowBQYDK2VwAyEAmtpvSUvHfAc6TBDMnD3v+3avELwMAeYHXxTW4uPjQkQ="
+  const privateBody = "MC4CAQAwBQYDK2VwBCIEIDwvpu7AMQgOEE8GXeCapSjNcO1tj5ICp151m3u6cGbK"
+  assert.match(publicBody, /tbd/i)
   const pairContract = {
     schemaVersion: 1,
     contractVersion: "test",
@@ -307,10 +303,7 @@ test("key material is never mistaken for a placeholder, whatever its base64 body
   const result = validateProductionCloudConfig({
     contract: pairContract,
     environment: "prod",
-    values: {
-      PRIVATE_KEY: pair.privateKey.export({type: "pkcs8", format: "der"}).toString("base64"),
-      PUBLIC_KEY: body,
-    },
+    values: {PRIVATE_KEY: privateBody, PUBLIC_KEY: publicBody},
   })
   assert.equal(result.checks.find((check) => check.id === "pair").status, "pass")
   assert.throws(
