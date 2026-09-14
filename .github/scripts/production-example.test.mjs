@@ -127,7 +127,7 @@ test("freezes a production example plan keyed on the promoted beta with the allo
         betaManifest,
         betaManifestUrl: "https://example.com/beta.json",
         betaManifestSha256: "b".repeat(64),
-        buildNumber: 310000212,
+        buildNumber: n(212),
       }),
     /above the selected beta/,
   )

@@ -160,7 +160,7 @@ test("allocates inside the family window from both stores and ignores strays out
     () =>
       prepare({
         previousManifest: null,
-        mentraInventory: inventory("com.mentra.mentra", current, n(99999), n(59)),
+        mentraInventory: inventory("com.mentra.mentra", current, n(9999), n(59)),
       }),
     /exhausted/,
   )

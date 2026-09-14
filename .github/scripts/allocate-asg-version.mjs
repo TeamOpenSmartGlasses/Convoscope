@@ -7,7 +7,8 @@ import {BUILD_NUMBER_MAX_SEQUENCE, familyBuildNumberPrefix, familyBuildNumberWin
 
 const ASSET_PATTERN = /^mentra-live-asg-(\d+)-([0-9a-f]{64})\.(apk|json)$/
 // ASG version codes use the family build-number formula shared with the Mentra
-// App (see release-family.mjs): the family prefix plus a sequence. The
+// App (see release-family.mjs): MAJOR*100_000_000 + MINOR*1_000_000 +
+// PATCH*10_000 + SEQUENCE. The
 // coordinated run number is the sequence, so an ASG rebuilt in a run carries
 // the same number as the app built in that run; a fingerprint already built
 // keeps its recorded code. Assets outside the family window belong to older

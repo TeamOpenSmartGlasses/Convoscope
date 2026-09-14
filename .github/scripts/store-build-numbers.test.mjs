@@ -64,7 +64,7 @@ test("allocates above the window's store numbers, the floor, and the version str
     () =>
       allocateStoreBuildNumber({
         marketingVersion: "3.1.1",
-        apple: apple([{buildNumber: familyBuildNumber("3.1.1", 99999), marketingVersion: "3.1.1"}]),
+        apple: apple([{buildNumber: familyBuildNumber("3.1.1", 9999), marketingVersion: "3.1.1"}]),
         google: null,
       }),
     /exhausted/,

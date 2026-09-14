@@ -8,15 +8,16 @@ import {fileURLToPath} from "node:url"
 
 import {assembleCoordinatedReleaseResults} from "./assemble-coordinated-release-results.mjs"
 import {cloudRecordForPlan} from "./coordinated-cloud-v2-test-helpers.mjs"
-import {createReleasePlan, finalizeReleaseManifest, loadReleaseFamily} from "./release-family.mjs"
+import {createReleasePlan, familyBuildNumber, finalizeReleaseManifest, loadReleaseFamily} from "./release-family.mjs"
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..")
+const family = loadReleaseFamily({rootDir})
 const plan = createReleasePlan({
-  family: loadReleaseFamily({rootDir}),
+  family,
   channel: "beta",
   sequence: 57,
   sourceCommit: "a".repeat(40),
-  nativeBuildNumber: 310000057,
+  nativeBuildNumber: familyBuildNumber(family.familyBaseVersion, 57),
 })
 const provenanceUrl = "https://github.com/Mentra-Community/MentraOS/actions/runs/123"
 

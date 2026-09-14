@@ -75,17 +75,20 @@ export function validateFamilyBaseVersion(version) {
 // Every store build number in the family (the Mentra App's iOS build and
 // Android versionCode, and the ASG client's versionCode) derives from the family
 // base version, so a number says which release it belongs to and every channel
-// of a family orders naturally: MAJOR*100_000_000 + MINOR*10_000_000 +
-// PATCH*100_000 + SEQUENCE. Dev and beta use the coordinated run number as the
+// of a family orders naturally: MAJOR*100_000_000 + MINOR*1_000_000 +
+// PATCH*10_000 + SEQUENCE. Dev and beta use the coordinated run number as the
 // sequence; production takes the next free sequence above everything the
-// stores already hold for the family. MINOR is limited to 9 and PATCH to 99 so
-// the windows never overlap, and MAJOR to 20 so codes stay Android-safe. Two
-// legacy namespaces sit below every family window: the timestamp scheme of the
-// pre-coordinated releases (below 60 million) and the first coordinated
-// allocator's 100_000_000 + run number.
+// stores already hold for the family. MINOR and PATCH are limited to 99 so the
+// windows never overlap, and MAJOR to 20 so codes stay under Android's
+// 2,100,000,000 limit. Two legacy namespaces sit below every family window:
+// the timestamp scheme of the pre-coordinated releases (below 60 million) and
+// the first coordinated allocator's 100_000_000 + run number. The Mentra App's
+// 3.1.0 betas and early 3.2.0 dev builds used a flat 310_000_000 + run number
+// and sit above their families' windows; testers on those Android builds
+// reinstall once to rejoin the release train.
 export const BUILD_NUMBER_MAJOR_WEIGHT = 100_000_000
-export const BUILD_NUMBER_MINOR_WEIGHT = 10_000_000
-export const BUILD_NUMBER_PATCH_WEIGHT = 100_000
+export const BUILD_NUMBER_MINOR_WEIGHT = 1_000_000
+export const BUILD_NUMBER_PATCH_WEIGHT = 10_000
 export const BUILD_NUMBER_MAX_SEQUENCE = BUILD_NUMBER_PATCH_WEIGHT - 1
 
 export function familyBuildNumberPrefix(baseVersion) {
@@ -93,7 +96,7 @@ export function familyBuildNumberPrefix(baseVersion) {
   if (!match) throw new Error(`Family base version ${JSON.stringify(baseVersion)} must be a plain X.Y.Z version`)
   const [major, minor, patch] = match.slice(1).map(Number)
   if (major < 2 || major > 20) throw new Error(`Family base version major ${major} must be between 2 and 20`)
-  if (minor > 9) throw new Error(`Family base version minor ${minor} must be at most 9`)
+  if (minor > 99) throw new Error(`Family base version minor ${minor} must be at most 99`)
   if (patch > 99) throw new Error(`Family base version patch ${patch} must be at most 99`)
   return major * BUILD_NUMBER_MAJOR_WEIGHT + minor * BUILD_NUMBER_MINOR_WEIGHT + patch * BUILD_NUMBER_PATCH_WEIGHT
 }
