@@ -1,5 +1,7 @@
 package com.mentra.bluetoothsdk.sgcs
 
+import com.mentra.bluetoothsdk.PhotoCompression
+
 // Mentra
 // old augmentos imports:
 import android.Manifest
@@ -729,6 +731,7 @@ class MentraLive : SGCManager() {
             var requestId: String,
             var webhookUrl: String?
     ) {
+        var isThumbnail: Boolean = false
         var authToken: String? = null
         var session: FileTransferSession? = null
         var phoneStartTime: Long = System.currentTimeMillis() // When phone received the request
@@ -5203,6 +5206,20 @@ class MentraLive : SGCManager() {
             val bleImgId = json.optString("bleImgId", "")
             val requestId = json.optString("requestId", "")
             val compressionDurationMs = json.optLong("compressionDurationMs", 0)
+            if (json.optBoolean("thumbnail", false) && bleImgId.isNotEmpty() && requestId.isNotEmpty()) {
+                val parent = blePhotoTransfers.values.firstOrNull {
+                    !it.isThumbnail && it.requestId == requestId &&
+                        bleImgId == "T" + it.bleImgId.drop(1)
+                }
+                if (parent == null) {
+                    Log.w(TAG, "Ignoring thumbnail for an unknown photo request")
+                    return
+                }
+                // Duplicate ready messages must not erase packets already received.
+                blePhotoTransfers.getOrPut(bleImgId) {
+                    BlePhotoTransfer(bleImgId, requestId, null).apply { isThumbnail = true }
+                }
+            }
 
             Bridge.log(
                     "LIVE: 📸 BLE photo ready notification: bleImgId=" +
@@ -6699,13 +6716,10 @@ class MentraLive : SGCManager() {
                 json.put("size", size)
             }
             json.put("mode", mode)
-            if (compress != null && !compress.isEmpty()) {
-                json.put("compress", compress)
-            } else {
-                json.put("compress", "none")
-            }
+            json.put("compress", compress)
             json.put("save", save)
             json.put("sound", sound)
+            if (request.presendThumbnail) json.put("presend_thumbnail", true)
             if (exposureTimeNs != null && exposureTimeNs > 0L) {
                 Bridge.log(
                         "LIVE: Using manual exposure time for photo request " +
@@ -7918,7 +7932,7 @@ class MentraLive : SGCManager() {
                 command.put("isoCap", isoCap)
             }
             if (!compress.isNullOrEmpty()) {
-                command.put("compress", compress)
+                command.put("compress", PhotoCompression.fromValue(compress).value)
             }
             if (sound != null) {
                 command.put("sound", sound)
@@ -10408,6 +10422,17 @@ class MentraLive : SGCManager() {
 
     /** Process and upload a BLE photo transfer */
     private fun processAndUploadBlePhoto(transfer: BlePhotoTransfer, imageData: ByteArray) {
+        if (transfer.isThumbnail) {
+            Bridge.sendPhotoStatus(mapOf(
+                "type" to "photo_status",
+                "requestId" to transfer.requestId,
+                "status" to "thumbnail_received",
+                "timestamp" to System.currentTimeMillis(),
+                "thumbnailUrl" to ("data:image/jpeg;base64," + android.util.Base64.encodeToString(imageData, android.util.Base64.NO_WRAP)),
+                "fileSizeBytes" to imageData.size,
+            ))
+            return
+        }
         Bridge.log("LIVE: Processing BLE photo for upload. RequestId: " + transfer.requestId)
         val uploadStartTime = System.currentTimeMillis()
 

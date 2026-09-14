@@ -1996,7 +1996,7 @@ class DeviceManager {
             settings.ispAnalogGain,
             settings.aeExposureDivisor,
             settings.isoCap,
-            settings.compress,
+            settings.compress?.value,
             settings.sound,
             settings.resetCaptureTuning == true,
         )

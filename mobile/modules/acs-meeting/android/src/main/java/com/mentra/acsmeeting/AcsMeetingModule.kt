@@ -1,10 +1,8 @@
 package com.mentra.acsmeeting
 
 import android.content.Context
-import android.content.Intent
-import android.os.Build
+import android.net.wifi.WifiManager
 import android.os.SystemClock
-import android.provider.Settings
 import com.mentra.glassesmedia.network.InternetHold
 import com.mentra.glassesmedia.network.ScopedNetworkChangeDetector
 import com.mentra.glassesmedia.network.ScopedNetworkError
@@ -63,31 +61,6 @@ class AcsMeetingModule : Module() {
    */
   private var internetHold: InternetHold? = null
 
-  /**
-   * Put the system Wi-Fi toggle in front of the user.
-   *
-   * SoftAP calling needs the station radio, but `WifiManager.setWifiEnabled` has been a no-op for
-   * non-privileged apps since Android 10, so the app cannot turn it on itself. The inline settings
-   * panel overlays the call UI, which keeps a one-tap recovery in the same screen instead of only
-   * reporting a failure the user has to go fix elsewhere.
-   */
-  private fun promptToEnableWifi() {
-    val intent =
-      Intent(
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) Settings.Panel.ACTION_WIFI
-        else Settings.ACTION_WIFI_SETTINGS,
-      )
-    val activity = appContext.currentActivity
-    runCatching {
-      if (activity != null) {
-        activity.startActivity(intent)
-      } else {
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        appContext.reactContext?.startActivity(intent)
-      }
-    }
-  }
-
   override fun definition() = ModuleDefinition {
     Name("MentraAcsMeeting")
     // `onScopedNetworkLost` fires only for a hotspot that went away while we still wanted it: the
@@ -106,6 +79,20 @@ class AcsMeetingModule : Module() {
       require(traceId.matches(Regex("[A-Za-z0-9]*"))) { "invalid trace id" }
       com.mentra.glassesmedia.trace.SoftApTrace.begin(traceId)
       Unit
+    }
+
+    /**
+     * Is the station radio on? The host's preflight, asked before the glasses are told anything.
+     *
+     * Read-only on purpose: `WifiManager.setWifiEnabled` has been a no-op for non-privileged apps
+     * since Android 10, so the only honest move is to report the state and let the UI explain the
+     * two taps. We never open the Wi-Fi panel or a network list — the wearer does not need to pick
+     * a network, and being shown one invites them to join the wrong thing.
+     */
+    AsyncFunction("isWifiEnabled") {
+      val context = appContext.reactContext ?: throw IllegalStateException("no react context")
+      val manager = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+      manager?.isWifiEnabled == true
     }
 
     /**
@@ -143,19 +130,13 @@ class AcsMeetingModule : Module() {
         try {
           scoped.join(ssid, passphrase, listener)
         } catch (error: ScopedNetworkError.WifiDisabled) {
-          // Open the panel and *wait*. Throwing here used to tear the hotspot down in ~20ms,
-          // then a retry reminted ACS after the user turned Wi-Fi on — and Android often made
-          // that new Wi-Fi the default route with no internet, so token mint hung on DNS.
-          promptToEnableWifi()
-          com.mentra.glassesmedia.trace.SoftApTrace.stage("wifi_enable_wait", "timeoutMs" to ScopedSoftApNetwork.WIFI_ENABLE_WAIT_MS)
-          val enabled = scoped.awaitWifiEnabled()
-          com.mentra.glassesmedia.trace.SoftApTrace.stage(
-            "wifi_enable_wait_done",
-            "enabled" to enabled,
-          )
-          if (!enabled) throw error
-          Thread.sleep(ScopedSoftApNetwork.WIFI_ENABLE_SETTLE_MS)
-          scoped.join(ssid, passphrase, listener)
+          // The host asks `isWifiEnabled` before it raises the hotspot, so reaching here means the
+          // radio went off inside the join itself. Nothing native can do about that is better than
+          // saying so: the panel-and-wait this replaced held the call for up to 90s behind a
+          // system sheet with no explanation, and the Wi-Fi the user then picked often became the
+          // default route with no internet, hanging the ACS token mint on DNS.
+          com.mentra.glassesmedia.trace.SoftApTrace.failure("wifi_disabled_at_join")
+          throw error
         } catch (error: ScopedNetworkError.Unavailable) {
           // The first specifier steals wlan0 from the phone's current Wi-Fi (iPhone X, office
           // AP). Samsung then assoc-rejects the glasses SoftAP (status 1025) and fires
@@ -284,12 +265,17 @@ class AcsMeetingModule : Module() {
         val audioSource = options["audioSource"] as? String ?: "glasses"
         val audioDelayMs = (options["audioDelayMs"] as? Number)?.toInt()
         val video = parseVideo(options["video"])
+        // Diagnostic only, and deliberately not validated into an enum: an origin this build does
+        // not recognise is better recorded verbatim than collapsed into the wrong bucket.
+        val origin = (options["origin"] as? String)?.takeIf { it.isNotBlank() } ?: "unknown"
         SoftApTrace.stage(
           "native_join_options",
           "transport" to videoSource.kind,
           "audioSource" to audioSource,
           "audioDelayMs" to (audioDelayMs ?: -1),
           "video" to "${video.width}x${video.height}@${video.fps}",
+          "maxBitrateBps" to video.maxBitrateBps,
+          "origin" to origin,
           "dumpWav" to dumpWav,
         )
         val context = appContext.reactContext ?: throw IllegalStateException("no react context")
@@ -316,6 +302,7 @@ class AcsMeetingModule : Module() {
           audioSource,
           video,
           audioDelayMs,
+          origin,
           bindIngestUnpinned = { bind ->
             val hold = internetHold
             if (hold == null) {
@@ -368,6 +355,29 @@ class AcsMeetingModule : Module() {
           internetHold?.releaseWhenDefaultInternetReady()
         }
         mapOf("completed" to completed)
+      }
+    }
+
+    /**
+     * Wait for the SoftAP WHIP listener's port to be released.
+     *
+     * The listener outlives `leave` on purpose — it answers `410` for a few seconds so an in-flight
+     * request from the glasses gets a status rather than a reset. That grace is invisible from JS,
+     * and a Start inside it fails on a port this process still holds. `closed: false` means the
+     * host must force the close, not that it may carry on.
+     */
+    AsyncFunction("awaitIngestClosed") { options: Map<String, Any?> ->
+      val timeoutMs = (options["timeoutMs"] as? Number)?.toLong() ?: 3_500L
+      traced("await_ingest_closed", "timeoutMs" to timeoutMs, "hasSession" to (session != null)) {
+        mapOf("closed" to (session?.awaitIngestClosed(timeoutMs) ?: true))
+      }
+    }
+
+    /** Skip the tombstone and drop the listener now. The host's forced path after a timed-out wait. */
+    AsyncFunction("forceCloseIngest") {
+      traced("force_close_ingest", "hasSession" to (session != null)) {
+        session?.forceCloseIngest()
+        Unit
       }
     }
 

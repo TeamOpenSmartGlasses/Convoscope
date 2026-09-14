@@ -100,6 +100,15 @@ class GlassesMediaController(
   private var source: GlassesMediaSource? = null
   private var stateListener: SourceStateListener? = null
 
+  /**
+   * The SoftAP listener this controller has let go of, kept only until its port is released.
+   *
+   * [stop] drops the source, but a WHIP listener answers `410` for a few seconds after that and
+   * still holds its port. Losing the reference here is what made the port's release unobservable
+   * from above, so the next call bound into it.
+   */
+  private var retiringIngest: LocalWhipIngestSource? = null
+
   val state: SourceState
     get() = source?.state ?: SourceState.IDLE
 
@@ -108,7 +117,7 @@ class GlassesMediaController(
     get() = source?.ingestUrl
 
   fun attach(video: VideoFrameListener, pcm: PcmListener, config: SourceConfig) {
-    source?.stop()
+    retire()
     source = factory.create(video, pcm, config).also {
       it.setStateListener(stateListener)
       it.start(config)
@@ -129,8 +138,30 @@ class GlassesMediaController(
   }
 
   fun stop() {
-    source?.stop()
+    retire()
+  }
+
+  private fun retire() {
+    val previous = source
+    previous?.stop()
+    if (previous is LocalWhipIngestSource) retiringIngest = previous
     source = null
+  }
+
+  /**
+   * Has the SoftAP listener actually released its port? `true` when there is nothing to wait for.
+   *
+   * A `false` here is the teardown barrier's signal to force the close rather than to give up:
+   * the next call's bind fails on exactly this port.
+   */
+  fun awaitIngestClosed(timeoutMs: Long): Boolean = retiringIngest?.awaitIngestClosed(timeoutMs) ?: true
+
+  /** Close the retiring listener now, skipping the tombstone. Only for a barrier that timed out. */
+  fun forceCloseIngest() {
+    // Do not drop the handle here: the host re-asks awaitIngestClosed after this to verify the port
+    // was released, and a null reference answers `true` unconditionally, hiding a failed close. The
+    // next retire() reassigns retiringIngest, so keeping the closed one until then is harmless.
+    retiringIngest?.forceCloseIngest()
   }
 
   fun setPcmDeliveryEnabled(enabled: Boolean) {

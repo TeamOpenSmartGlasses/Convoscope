@@ -6,6 +6,7 @@ import type {MiniappSession} from "../session"
 import {
   MEETING_HOST_UPDATE_MESSAGE,
   MeetingModule,
+  parseMeetingEndReason,
   parseMeetingMediaSource,
   parseMeetingSoftApProgress,
   validateMeetingVideoSource,
@@ -32,6 +33,26 @@ const joinArgs = {
 }
 
 describe("MeetingModule", () => {
+  test("getState preserves provider termination details", async () => {
+    const endReason = {code: 404, subcode: 8543}
+    const {session} = mockSession(async () => ({state: "error", muted: false, endReason}))
+    const meeting = new MeetingModule(session)
+    expect((await meeting.getState()).endReason).toEqual(endReason)
+    expect(meeting.state.endReason).toEqual(endReason)
+  })
+
+  test("end reason parsing retains valid fields without coercing malformed codes", () => {
+    expect(parseMeetingEndReason({code: 0, subcode: 8543, message: "ended", extra: true})).toEqual({
+      code: 0,
+      subcode: 8543,
+      message: "ended",
+    })
+    expect(parseMeetingEndReason({code: NaN, subcode: Infinity, message: "ended"})).toEqual({message: "ended"})
+    for (const raw of [undefined, null, "404", {}, {code: "404", subcode: false, message: ""}]) {
+      expect(parseMeetingEndReason(raw)).toBeUndefined()
+    }
+  })
+
   test("join sends MEETING_JOIN and maps NOT_IMPLEMENTED to an update-app error", async () => {
     const {session} = mockSession(async () => {
       throw {code: MiniappErrorCode.NOT_IMPLEMENTED, message: "Unknown or unimplemented request type"}
@@ -228,7 +249,13 @@ describe("MeetingModule", () => {
       elapsedMs: 4200,
       steps: [
         {step: "hotspot", status: "done", detail: "Hotspot MentraLive_38f108", error: undefined, durationMs: 3500},
-        {step: "scopedJoin", status: "running", detail: "Phone joining MentraLive_38f108", error: undefined, durationMs: undefined},
+        {
+          step: "scopedJoin",
+          status: "running",
+          detail: "Phone joining MentraLive_38f108",
+          error: undefined,
+          durationMs: undefined,
+        },
         {step: "acsJoin", status: "pending", detail: undefined, error: undefined, durationMs: undefined},
         {step: "publish", status: "pending", detail: undefined, error: undefined, durationMs: undefined},
         {step: "live", status: "pending", detail: undefined, error: undefined, durationMs: undefined},
