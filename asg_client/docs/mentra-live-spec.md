@@ -83,6 +83,15 @@ Mentra Live supports photo capture and video recording from the glasses camera.
 
 After a photo completes, the camera normally stays warm for 8 seconds for successive shots.
 
+Bluetooth SDK photo requests can opt into `presend_thumbnail: true`. Compatible
+phone SDKs receive a JPEG preview over BLE as `photo_status: thumbnail_received`,
+with a local JPEG data URI, before full-photo delivery. The preview preserves
+aspect ratio, never upscales, and is capped at a 500-pixel long edge at JPEG
+quality 50. It requires an upload target and does not replace the full photo or
+complete the capture request. Full-image BLE transmission waits for the preview
+acknowledgement; a failed or timed-out preview fails the opted-in request.
+Requests that omit the option retain their existing transfer behavior.
+
 - **Short camera-button press**: takes a photo unless video is currently recording, in which case it stops the recording.
 - **Long camera-button press**: starts video recording unless video is already recording, in which case it stops.
 - Photo/video resolution, FPS, max recording duration, and privacy LED behavior are configurable by commands from the phone app.
@@ -121,6 +130,18 @@ same gate. An unchanged crop never restarts the HAL. A changed crop is rejected 
 while a publisher is pending, live, or reconnecting; while a photo/video or warm-camera service
 owns the camera; or while USB webcam capture is active. Busy persistent changes are not saved.
 Override release/expiry retains ownership until the saved crop can be restored safely.
+BLE JPEG encoding honors `compress`: `none` = Q95, `low` = Q88,
+`medium` = Q78, and `high` = Q60. The size tier independently controls pixel limits.
+Warm-camera leases default to 15 seconds and support requested holds up to 5 minutes.
+FOV `ready` acknowledgments wait for delayed camera tuning to finish, its subsequent
+restart cooldown, and Camera2 camera
+re-registration (including readable characteristics). If registration does not recover
+within 20 seconds, glasses return `camera_unavailable` instead of reporting ready.
+Incoming FOV commands queue in arrival order while registration is pending. A completed
+update with a queued successor returns `status: error`, `ready: false`, and
+`error_code: fov_superseded` before the successor starts; only the final update reports
+ready. Registration timeout also fails queued updates, and lease expiry restoration waits
+behind active updates. Duplicate lease refreshes use the same readiness gate.
 On miniapp exit the phone orders release after its capture cleanup, stops renewing a rejected
 release, and retries release on reconnect. The existing ASG lease TTL bounds abandoned ownership;
 expiry waits for camera-idle rather than resetting the HAL during another app's capture.

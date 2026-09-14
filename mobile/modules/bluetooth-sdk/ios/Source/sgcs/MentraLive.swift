@@ -810,6 +810,7 @@ private struct FileTransferSession {
 }
 
 private struct BlePhotoTransfer {
+    var isThumbnail = false
     let bleImgId: String
     let requestId: String
     let webhookUrl: String
@@ -2059,6 +2060,7 @@ class MentraLive: NSObject, SGCManager {
             "I" + String(format: "%09d", Int(Date().timeIntervalSince1970 * 1000) % 100_000_000)
         json["bleImgId"] = bleImgId
         json["transferMethod"] = request.transferMethod
+        if request.presendThumbnail { json["presend_thumbnail"] = true }
 
         if let webhookUrl = request.webhookUrl, !webhookUrl.isEmpty {
             json["webhookUrl"] = webhookUrl
@@ -2085,7 +2087,7 @@ class MentraLive: NSObject, SGCManager {
         json["size"] = allowedSizes.contains(size) ? size : "medium"
         json["mode"] = request.mode.rawValue
 
-        json["compress"] = request.compress?.rawValue ?? "none"
+        json["compress"] = request.compress?.wireValue ?? "none"
         json["save"] = request.save
         json["sound"] = request.sound
 
@@ -4003,6 +4005,20 @@ class MentraLive: NSObject, SGCManager {
         let bleImgId = json["bleImgId"] as? String ?? ""
         let requestId = json["requestId"] as? String ?? ""
         let compressionDurationMs = json["compressionDurationMs"] as? Int64 ?? 0
+        if json["thumbnail"] as? Bool == true, !bleImgId.isEmpty, !requestId.isEmpty {
+            guard blePhotoTransfers.values.contains(where: {
+                !$0.isThumbnail && $0.requestId == requestId && bleImgId == "T" + $0.bleImgId.dropFirst()
+            }) else {
+                Bridge.log("LIVE: Ignoring thumbnail for an unknown photo request")
+                return
+            }
+            // Preserve any packets already received when the ready message is repeated.
+            if blePhotoTransfers[bleImgId] == nil {
+                var transfer = BlePhotoTransfer(bleImgId: bleImgId, requestId: requestId, webhookUrl: "")
+                transfer.isThumbnail = true
+                blePhotoTransfers[bleImgId] = transfer
+            }
+        }
 
         Bridge.log(
             "LIVE: 📸 BLE photo ready notification: bleImgId=\(bleImgId), requestId=\(requestId)"
@@ -4480,6 +4496,17 @@ class MentraLive: NSObject, SGCManager {
     }
 
     private func processAndUploadBlePhoto(_ transfer: BlePhotoTransfer, imageData: Data) {
+        if transfer.isThumbnail {
+            Bridge.sendPhotoStatus([
+                "type": "photo_status",
+                "requestId": transfer.requestId,
+                "status": "thumbnail_received",
+                "timestamp": Int64(Date().timeIntervalSince1970 * 1000),
+                "thumbnailUrl": "data:image/jpeg;base64," + imageData.base64EncodedString(),
+                "fileSizeBytes": imageData.count,
+            ])
+            return
+        }
         Bridge.log("LIVE: Processing BLE photo for upload. RequestId: \(transfer.requestId)")
 
         BlePhotoUploadService.processAndUploadPhoto(

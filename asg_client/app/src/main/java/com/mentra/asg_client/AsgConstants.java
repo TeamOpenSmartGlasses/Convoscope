@@ -1,6 +1,12 @@
 package com.mentra.asg_client;
 
 public class AsgConstants {
+    /** Maximum wait for Camera2 re-registration before a FOV readiness error. */
+    public static final long CAMERA_FOV_READY_TIMEOUT_MS = 20_000L;
+
+    /** Check registration without blocking the main lifecycle thread. */
+    public static final long CAMERA_FOV_READY_POLL_MS = 250L;
+
     /** A charger never permits camera use at or below this known battery percentage. */
     public static final int CAMERA_CHARGING_BATTERY_FLOOR = 3;
 
@@ -123,7 +129,7 @@ public class AsgConstants {
     /** Warm-up leases are intentionally short-lived to bound idle camera power use. */
     public static final long CAMERA_WARM_UP_DEFAULT_DURATION_MS = 15_000L;
 
-    public static final long CAMERA_WARM_UP_MAX_DURATION_MS = 60_000L;
+    public static final long CAMERA_WARM_UP_MAX_DURATION_MS = 300_000L;
 
     /**
      * Shortest gap between two camera-button photos. Presses inside this window are dropped.
@@ -407,7 +413,15 @@ public class AsgConstants {
      * transfer pipeline. Filter logcat on tag {@code BlePhotoTiming} or prefix {@code ⏱️ [BLE
      * PHOTO]}. Keep false in production.
      */
-    public static final boolean ENABLE_PHOTO_TIMING_LOGS = true;
+    public static final boolean ENABLE_PHOTO_TIMING_LOGS = false;
+
+    /** Opt-in SDK preview: preserve aspect ratio, never upscale. */
+    public static final int PHOTO_THUMBNAIL_LONG_EDGE = 500;
+
+    public static final int PHOTO_THUMBNAIL_JPEG_QUALITY = 50;
+
+    /** Bound the preview's wait for phone acknowledgement before starting full delivery. */
+    public static final int PHOTO_THUMBNAIL_TIMEOUT_SECONDS = 30;
 
     /**
      * ZSL preview/capture buffering kill switch. Disable only as an emergency; normal photo capture
@@ -487,9 +501,15 @@ public class AsgConstants {
     public static final String BLE_PHOTO_CODEC = "JPEG_FAST";
 
     /**
-     * JPEG quality for all BLE photo payloads when {@link #BLE_PHOTO_CODEC} is {@code JPEG_FAST}.
+     * BLE JPEG quality when compression is none or omitted (still lossy JPEG).
      */
-    public static final int BLE_PHOTO_JPEG_FAST_QUALITY = 80;
+    public static final int BLE_PHOTO_JPEG_QUALITY_NONE = 95;
+    /** BLE JPEG quality for low compression. */
+    public static final int BLE_PHOTO_JPEG_QUALITY_LOW = 88;
+    /** BLE JPEG quality for medium compression. */
+    public static final int BLE_PHOTO_JPEG_QUALITY_MEDIUM = 78;
+    /** BLE JPEG quality for high compression. */
+    public static final int BLE_PHOTO_JPEG_QUALITY_HIGH = 60;
 
     /**
      * Log UART file-transfer send progress every N packets. {@code 0} = off (start/end/errors

@@ -237,6 +237,16 @@ public class MediaCaptureService {
         }
     }
 
+    private int resolveBleJpegQuality(String requestId) {
+        String compress = photoRequestedCompression.get(requestId);
+        if ("low".equals(compress)) return AsgConstants.BLE_PHOTO_JPEG_QUALITY_LOW;
+        if ("medium".equals(compress)) return AsgConstants.BLE_PHOTO_JPEG_QUALITY_MEDIUM;
+        if ("high".equals(compress) || "heavy".equals(compress)) {
+            return AsgConstants.BLE_PHOTO_JPEG_QUALITY_HIGH;
+        }
+        return AsgConstants.BLE_PHOTO_JPEG_QUALITY_NONE;
+    }
+
     private BleParams resolveBleParams(String requestedSize) {
         // Sized for the push-mode/batched-ack BLE pipe (~45-70 KB/s), not the old
         // ~19KB single-notification ceiling. Two rules drive the ladder:
@@ -605,6 +615,87 @@ public class MediaCaptureService {
     private Map<String, String> photoRequestedSizes = new HashMap<>();
     // Track capture mode through asynchronous WiFi-to-BLE fallback.
     private Map<String, String> photoRequestedModes = new HashMap<>();
+    private Map<String, String> photoRequestedCompression = new HashMap<>();
+    private final Map<String, String> photoThumbnailIds = new ConcurrentHashMap<>();
+    private final Map<String, java.util.concurrent.CompletableFuture<Boolean>> thumbnailAcks =
+            new ConcurrentHashMap<>();
+
+    /** Enable a preview for this request only; the ordinary full-photo route is unchanged. */
+    public void requestThumbnail(String requestId, String bleImgId) {
+        photoThumbnailIds.put(requestId, "T" + bleImgId.substring(1));
+    }
+
+    /** Runs on the photo worker, never on the command thread that receives the acknowledgement. */
+    private void presendThumbnail(android.graphics.Bitmap source, String requestId)
+            throws Exception {
+        try (ThumbnailTransfer transfer = startThumbnail(source, requestId)) {
+            if (transfer != null) transfer.await();
+        }
+    }
+
+    private final class ThumbnailTransfer implements AutoCloseable {
+        final String id;
+        final java.util.concurrent.CompletableFuture<Boolean> ack;
+        final PhotoTransferAck completion;
+
+        ThumbnailTransfer(String id) {
+            this.id = id;
+            completion = new PhotoTransferAck(AsgConstants.PHOTO_THUMBNAIL_TIMEOUT_SECONDS * 1000L);
+            ack = new java.util.concurrent.CompletableFuture<>();
+            ack.whenComplete(
+                    (success, error) -> {
+                        if (error != null) {
+                            completion.result.completeExceptionally(error);
+                            return;
+                        }
+                        completion.result.complete(success);
+                    });
+            thumbnailAcks.put(id, ack);
+        }
+
+        void await() throws Exception {
+            completion.await();
+        }
+
+        @Override
+        public void close() {
+            thumbnailAcks.remove(id, ack);
+            ack.cancel(false);
+            completion.result.cancel(false);
+        }
+    }
+
+    /** Starts the transfer without blocking the photo worker on the phone acknowledgement. */
+    private ThumbnailTransfer startThumbnail(android.graphics.Bitmap source, String requestId)
+            throws Exception {
+        String thumbnailId = photoThumbnailIds.remove(requestId);
+        if (thumbnailId == null) return null;
+        long started = android.os.SystemClock.elapsedRealtime();
+        byte[] bytes = PhotoThumbnail.encode(source);
+        long encodeMs = android.os.SystemClock.elapsedRealtime() - started;
+        ThumbnailTransfer transfer = new ThumbnailTransfer(thumbnailId);
+        try {
+            JSONObject ready = new JSONObject();
+            ready.put("type", "ble_photo_ready");
+            ready.put("requestId", requestId);
+            ready.put("bleImgId", thumbnailId);
+            ready.put("thumbnail", true);
+            ready.put("compressionDurationMs", encodeMs);
+
+            // Use the existing ordered prelude + binary file transport, including retries.
+            if (mServiceCallback == null
+                    || !mServiceCallback.sendFileViaBluetooth(
+                            bytes,
+                            thumbnailId,
+                            ready.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8))) {
+                throw new java.io.IOException("Thumbnail BLE transfer could not start");
+            }
+            return transfer;
+        } catch (Exception e) {
+            transfer.close();
+            throw e;
+        }
+    }
 
     private String finalPhotoPath(String requestId, String fallbackPath) {
         String path = photoOriginalPaths.get(requestId);
@@ -635,6 +726,8 @@ public class MediaCaptureService {
         photoTextCropApplied.remove(requestId);
         photoRequestedSizes.remove(requestId);
         photoRequestedModes.remove(requestId);
+        photoRequestedCompression.remove(requestId);
+        photoThumbnailIds.remove(requestId);
     }
 
     /** Clear all request state, including timing data, on a terminal non-BLE exit. */
@@ -2757,6 +2850,7 @@ public class MediaCaptureService {
         // Track requested size for potential fallbacks
         photoRequestedSizes.put(requestId, size);
         photoRequestedModes.put(requestId, mode);
+        photoRequestedCompression.put(requestId, compress == null ? "none" : compress);
 
         Log.d(TAG, "Taking photo and uploading to " + webhookUrl);
 
@@ -3198,6 +3292,11 @@ public class MediaCaptureService {
      */
     public void onBlePhotoTransferComplete(String bleImgId, boolean success) {
         if (bleImgId == null || bleImgId.isEmpty()) {
+            return;
+        }
+        java.util.concurrent.CompletableFuture<Boolean> thumbnailAck = thumbnailAcks.get(bleImgId);
+        if (thumbnailAck != null) {
+            thumbnailAck.complete(success);
             return;
         }
         String requestId = bleImgIdToRequestId.remove(bleImgId);
@@ -3857,6 +3956,52 @@ public class MediaCaptureService {
             String authToken,
             String compress) {
         String uploadPath = prepareTextModePhotoPath(photoFilePath, requestId);
+        if (photoThumbnailIds.containsKey(requestId)) {
+            new Thread(
+                            () -> {
+                                android.graphics.Bitmap bitmap = null;
+                                try {
+
+                                    android.graphics.BitmapFactory.Options options =
+                                            new android.graphics.BitmapFactory.Options();
+                                    options.inJustDecodeBounds = true;
+                                    android.graphics.BitmapFactory.decodeFile(uploadPath, options);
+                                    options.inSampleSize = 1;
+                                    while (Math.max(options.outWidth, options.outHeight)
+                                                    / (options.inSampleSize * 2)
+                                            >= AsgConstants.PHOTO_THUMBNAIL_LONG_EDGE)
+                                        options.inSampleSize *= 2;
+                                    options.inJustDecodeBounds = false;
+                                    bitmap =
+                                            android.graphics.BitmapFactory.decodeFile(
+                                                    uploadPath, options);
+                                    if (bitmap == null)
+                                        throw new java.io.IOException(
+                                                "Could not decode thumbnail source");
+
+                                    presendThumbnail(bitmap, requestId);
+                                    processUploadWithCompression(
+                                            uploadPath, requestId, webhookUrl, authToken, compress);
+                                } catch (Exception e) {
+                                    Log.e(TAG, "Thumbnail presend failed: " + requestId, e);
+                                    sendPhotoErrorResponse(
+                                            requestId,
+                                            "THUMBNAIL_FAILED",
+                                            "Thumbnail presend failed");
+                                    cleanupPhotoArtifacts(
+                                            requestId,
+                                            uploadPath,
+                                            Boolean.TRUE.equals(photoSaveFlags.get(requestId)));
+                                    clearPhotoTracking(requestId);
+                                    releasePhotoJob(requestId);
+                                } finally {
+                                    if (bitmap != null) bitmap.recycle();
+                                }
+                            },
+                            "PhotoThumbnail")
+                    .start();
+            return;
+        }
         Log.d(TAG, "📸 Processing photo upload with SDK compression setting: " + compress);
 
         // Check SDK compression setting
@@ -4983,6 +5128,7 @@ public class MediaCaptureService {
             photoOriginalPaths.put(requestId, photoFilePath);
             photoRequestedSizes.put(requestId, size);
             photoRequestedModes.put(requestId, mode);
+        photoRequestedCompression.put(requestId, compress == null ? "none" : compress);
             tracePhotoWifiRoute(requestId, "direct_webhook", "wifi_connected", webhookUrl, null);
 
             Log.d(TAG, "📶 WiFi connected - attempting direct upload for " + requestId);
@@ -5013,6 +5159,7 @@ public class MediaCaptureService {
                     mode,
                     enableFlash,
                     enableSound,
+                    compress,
                     exposureTimeNs,
                     iso,
                     captureSettings);
@@ -5040,6 +5187,7 @@ public class MediaCaptureService {
             String mode,
             boolean enableFlash,
             boolean enableSound,
+            String compress,
             Long exposureTimeNs,
             Integer iso,
             PhotoCaptureSettings captureSettings) {
@@ -5152,6 +5300,7 @@ public class MediaCaptureService {
         // Track requested size for BLE compression
         photoRequestedSizes.put(requestId, size);
         photoRequestedModes.put(requestId, mode);
+        photoRequestedCompression.put(requestId, compress == null ? "none" : compress);
         // Notify that we're about to take a photo
         if (mMediaCaptureListener != null) {
             mMediaCaptureListener.onPhotoCapturing(requestId);
@@ -5480,6 +5629,7 @@ public class MediaCaptureService {
                         () -> {
                             long compressThreadStart = System.currentTimeMillis();
                             boolean bleTransferStarted = false;
+                            ThumbnailTransfer thumbnailTransfer = null;
                             android.graphics.Rect detectedTextRoi = null;
                             CompressStageTimer stage = new CompressStageTimer();
                             recordTiming(requestId, "ble_compress_start");
@@ -5641,8 +5791,7 @@ public class MediaCaptureService {
                                                 + ", quality="
                                                 + (codec == BleCodec.AVIF
                                                         ? bleParams.avifQuality
-                                                        : AsgConstants
-                                                                .BLE_PHOTO_JPEG_FAST_QUALITY));
+                                                        : resolveBleJpegQuality(requestId)));
                                 if (textModeRequested) {
                                     Log.d(
                                             TAG,
@@ -5918,6 +6067,15 @@ public class MediaCaptureService {
                                         cropped = original;
                                     }
 
+                                    // Deliver the preview before spending time resizing/encoding
+                                    // the full BLE image. Use the same crop for both images.
+                                    try {
+                                        thumbnailTransfer = startThumbnail(cropped, requestId);
+                                    } catch (Exception e) {
+                                        cropped.recycle();
+                                        throw e;
+                                    }
+
                                     // COMPRESS phase begins only after crop (or immediately when
                                     // cropping was not requested).
                                     logBlePhotoStep(requestId, "image_process_start");
@@ -5999,6 +6157,16 @@ public class MediaCaptureService {
                                                 + textCropOutcome);
                                 final int bleResizedWidth = resized.getWidth();
                                 final int bleResizedHeight = resized.getHeight();
+                                try {
+                                    // The grayscale processor fuses decode/crop/resize; color
+                                    // previews have already been sent before full-image resize.
+                                    if (AsgConstants.ENABLE_GRAYSCALE_BLE_PHOTOS) {
+                                        thumbnailTransfer = startThumbnail(resized, requestId);
+                                    }
+                                } catch (Exception e) {
+                                    resized.recycle();
+                                    throw e;
+                                }
 
                                 // 3. Encode with the policy-selected BLE codec. Text mode and
                                 // ordinary size-tier photos share this exact codec/quality
@@ -6007,7 +6175,7 @@ public class MediaCaptureService {
                                 int encodeQuality =
                                         codec == BleCodec.AVIF
                                                 ? bleParams.avifQuality
-                                                : AsgConstants.BLE_PHOTO_JPEG_FAST_QUALITY;
+                                                : resolveBleJpegQuality(requestId);
                                 Log.d(
                                         TAG,
                                         "BLE encode: originalPath="
@@ -6297,6 +6465,9 @@ public class MediaCaptureService {
                                 // The K900 packet pump streams from an in-memory buffer (including
                                 // retries), so no transport artifact is written to disk. bleImgId
                                 // is the wire name (16-char protocol cap, no extension).
+                                // Encoding overlaps thumbnail delivery; main-image transmission
+                                // still waits for the thumbnail's phone ACK and transport release.
+                                if (thumbnailTransfer != null) thumbnailTransfer.await();
                                 recordTiming(requestId, "ble_send_start");
                                 bleTransferStarted =
                                         sendCompressedPhotoViaBle(
@@ -6324,6 +6495,7 @@ public class MediaCaptureService {
                                 sendPhotoErrorResponse(
                                         requestId, "BLE_TRANSFER_FAILED", e.getMessage());
                             } finally {
+                                if (thumbnailTransfer != null) thumbnailTransfer.close();
                                 logBlePhotoStep(
                                         requestId,
                                         "cleanup_start",
@@ -7085,6 +7257,10 @@ public class MediaCaptureService {
      * prevent leaks.
      */
     public void cleanup() {
+        // Release workers waiting on a thumbnail ACK when the service is torn down.
+        thumbnailAcks.values().forEach(ack -> ack.cancel(false));
+        thumbnailAcks.clear();
+        photoThumbnailIds.clear();
         assertMainThread();
         Log.d(TAG, "🧹 MediaCaptureService cleanup() called");
         isCleaningUp.set(true);

@@ -5,7 +5,7 @@ import {beforeEach, describe, expect, mock, test} from "bun:test"
 // Mock module dependencies BEFORE importing the coordinator.
 
 // --- BLE native bridge (@mentra/bluetooth-sdk/internal) -------------------
-const requestPhotoNative = mock(async (_req: unknown): Promise<undefined> => undefined)
+const requestPhotoNative = mock(async (_req: unknown): Promise<unknown> => undefined)
 const warmUpCameraNative = mock(async (_req: unknown): Promise<undefined> => undefined)
 const stopCameraWarmUpNative = mock(async (_requestId: string): Promise<undefined> => undefined)
 
@@ -482,10 +482,10 @@ describe("PhonePhotoCoordinator", () => {
       expect(err.transport).toBe("ble")
     })
 
-    test("caps warm-up leases at 60 seconds", async () => {
+    test("caps warm-up leases at five minutes", async () => {
       const coord = new PhonePhotoCoordinator()
-      await coord.warmUpCamera("com.a", {durationMs: 120_000})
-      expect(warmUpCameraNative.mock.calls[0]![0]).toMatchObject({durationMs: 60_000})
+      await coord.warmUpCamera("com.a", {durationMs: 600_000})
+      expect(warmUpCameraNative.mock.calls[0]![0]).toMatchObject({durationMs: 300_000})
       await coord.stopWarmUpForApp("com.a")
     })
 
@@ -527,5 +527,32 @@ describe("PhonePhotoCoordinator", () => {
 
       expect(stopCameraWarmUpNative.mock.calls).toEqual([[requestId], [requestId]])
     })
+  })
+})
+
+
+describe("native upload completion fallback", () => {
+  test("resolves a confirmed upload without a cloud ready push", async () => {
+    awaitManagedPhotoReady.mockImplementation(() => new Promise(() => {}))
+    requestPhotoNative.mockImplementation(async (request: unknown) => ({
+      state: "success", requestId: (request as {requestId: string}).requestId,
+    }))
+    const coord = new PhonePhotoCoordinator()
+    const result = await coord.takePhoto("com.a", {transferMethod: "ble"})
+    expect(result.photoUrl).toBe(PRESIGN.readUrl)
+    expect(result.requestId).toBe(PRESIGN.requestId)
+  })
+
+  test("does not resolve an old bridge's dispatch-only acknowledgement", async () => {
+    let push!: (value: {readUrl: string}) => void
+    awaitManagedPhotoReady.mockImplementation(() => new Promise(resolve => {push = resolve}))
+    requestPhotoNative.mockResolvedValue(undefined)
+    const coord = new PhonePhotoCoordinator()
+    let settled = false
+    const pending = coord.takePhoto("com.a", {}).then(result => {settled = true; return result})
+    await new Promise(resolve => setTimeout(resolve, 10))
+    expect(settled).toBe(false)
+    push({readUrl: PRESIGN.readUrl})
+    expect((await pending).photoUrl).toBe(PRESIGN.readUrl)
   })
 })

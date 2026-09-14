@@ -53,8 +53,13 @@ enum class ButtonPhotoSize(val value: String) {
 
 enum class PhotoCompression(val value: String) {
     NONE("none"),
+    LOW("low"),
     MEDIUM("medium"),
+    HIGH("high"),
     HEAVY("heavy");
+
+    // Keep the legacy wire spelling for older glasses firmware.
+    val wireValue: String get() = if (this == HIGH) HEAVY.value else value
 
     companion object {
         @JvmStatic
@@ -203,6 +208,7 @@ data class PhotoRequest @JvmOverloads constructor(
     val mode: PhotoMode = PhotoMode.PHOTO,
     /** `direct` disables BLE fallback; `ble` skips direct upload; `auto` tries both. */
     val transferMethod: String = "auto",
+    val presendThumbnail: Boolean = false,
 ) {
     companion object {
         private fun transferMethodFromValue(value: Any?): String {
@@ -254,6 +260,7 @@ data class PhotoRequest @JvmOverloads constructor(
                 sound = boolValue(values, "sound") ?: true,
                 mode = PhotoMode.fromValue(stringValue(values, "mode")),
                 transferMethod = transferMethodFromValue(values["transferMethod"]),
+                presendThumbnail = boolValue(values, "presend_thumbnail") ?: false,
                 exposureTimeNs = exposureTimeNs,
                 iso = iso,
                 aeExposureDivisor = aeDivisor,
@@ -464,6 +471,8 @@ data class PhotoResponseEvent(
 data class PhotoStatusEvent(
     val values: Map<String, Any>,
 ) {
+    val thumbnailUrl: String? get() = stringValue(values, "thumbnailUrl")
+    val fileSizeBytes: Long? get() = longValue(values, "fileSizeBytes")
     val requestId: String get() = stringValue(values, "requestId").orEmpty()
     val status: String get() = stringValue(values, "status").orEmpty()
     val timestamp: Long get() = longValue(values, "timestamp") ?: System.currentTimeMillis()

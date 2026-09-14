@@ -585,9 +585,24 @@ console.log("photo delivered", photo.photoUrl ?? photo.uploadUrl, photo.fileSize
 
 `requestPhoto(...)` resolves only after the full photo action reaches terminal success: capture completed and the photo was delivered to the webhook, either directly from the glasses over Wi-Fi or through the phone's Bluetooth fallback relay. If you omit `requestId`, the SDK generates one and the terminal response includes it. It rejects if the ASG reports `state: "error"`, if phone-side fallback upload fails, if the SDK cannot send the command, or if no terminal `photo_response` arrives within 30 seconds. Photo requests use this longer operation-specific deadline because max-quality BLE fallback can legitimately exceed the 15-second deadline used by ordinary commands. Use `photo_status` for intermediate stages such as `accepted`, `configuring`, `capturing`, `captured`, `uploading`, `ble_fallback_compression`, `ready_for_transfer`, and `transferring`; `photo_status` is progress, while `photo_response` is terminal success/error. The raw `photo_response` event stream still includes both success and error events for subscribers. The webhook should accept multipart form data with a `photo` file and `requestId`. If `authToken` is provided, the uploader adds `Authorization: Bearer <token>`. The camera light is always enabled for photo capture.
 
+Set `presend_thumbnail: true` to receive a JPEG preview over Bluetooth before the
+full photo (default: `false`). Listen for `photo_status` with
+`status: "thumbnail_received"`; `thumbnailUrl` is a JPEG data URI and
+`fileSizeBytes` is the preview size. The preview preserves aspect ratio, is at
+most 500 pixels on its longest edge, never upscales, and uses JPEG quality 50.
+It does not resolve `requestPhoto()` or replace the full webhook delivery.
+An upload target is required; save-only capture does not support previews.
+Compatible ASG firmware is required; older firmware may ignore this option.
+
+On the BLE delivery path, full-image encoding overlaps preview transmission,
+but the full image is sent only after the phone acknowledges the preview.
+Preview send failure or a missing acknowledgement fails the request rather than
+starting a competing transfer. ASG timing logs use `BlePhotoTiming`; thumbnail
+transmission and CPU processing overlap, so their durations are not additive.
+
 For one-shot manual capture tuning, pass `exposureTimeNs` and `iso` together. `exposureTimeNs` is sensor exposure time in nanoseconds; `iso` is sensor ISO. If `exposureTimeNs` is omitted, `null`, invalid, or unsupported by the connected glasses, the camera uses auto exposure and ignores `iso`.
 
-To own and explicitly release a warm camera, pass a request ID to `warmUpCamera({requestId, ...})`, then call `stopCameraWarmUp(requestId)` when the foreground UI closes. Warm holds default to 15 seconds and are capped at 60 seconds. Stopping while the camera is opening rejects the pending warm-up with `camera_warm_up_cancelled`; stopping after `ready` emits `stopped`. Compatible ready leases share the camera and expire independently.
+To own and explicitly release a warm camera, pass a request ID to `warmUpCamera({requestId, ...})`, then call `stopCameraWarmUp(requestId)` when the foreground UI closes. Warm holds default to 15 seconds and are capped at 5 minutes. Stopping while the camera is opening rejects the pending warm-up with `camera_warm_up_cancelled`; stopping after `ready` emits `stopped`. Compatible ready leases share the camera and expire independently.
 
 Use `setCameraFov({fov, roiPosition})` to configure Mentra Live camera field of view and crop position. FOV is clamped to 62-118 degrees; ROI position is `"center"`, `"bottom"`, or `"top"`. You can also call `setCameraFov({preset: "narrow" | "standard" | "wide"})`; presets map to 82, 102, and 118 degrees with center ROI. The returned `CameraFovResult` resolves only after the ASG client reports that the setting was applied to camera hardware after the restart cooldown, and the promise rejects if the glasses report an error, persist the setting without hardware application, or time out. Raw `settings_ack` events remain available through `addListener("settings_ack", ...)` for diagnostic fields such as `hardwareApplied`. Treat FOV as a framing/ROI control; output resolution and effective detail can vary by capture path, firmware, and camera mode.
 
@@ -726,3 +741,5 @@ secrets, not in the repository.
 ## Starter Example App
 
 The [Mentra Bluetooth SDK Starter Kit](https://github.com/Mentra-Community/Mentra-Bluetooth-SDK-Starter-Kit) includes starter example apps for Android, iOS, and React Native / Expo. The React Native starter demonstrates scan/connect, display, camera photo upload, RTMP/SRT/WebRTC streaming, Wi-Fi/hotspot, microphone PCM, RGB LED, gallery mode, and console event inspection.
+
+BLE JPEG photo compression supports `none` (Q95), `low` (Q88), `medium` (Q78), and `high` (Q60) on updated glasses firmware. `heavy` remains a legacy alias for `high`; both use `heavy` on the wire for older firmware compatibility. Pixel limits are controlled separately by `size`.

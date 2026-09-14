@@ -62,8 +62,13 @@ public enum ButtonPhotoSize: String {
 
 public enum PhotoCompression: String {
     case none
+    case low
     case medium
+    case high
     case heavy
+
+    // Keep the legacy wire spelling for older glasses firmware.
+    public var wireValue: String { self == .high ? "heavy" : rawValue }
 }
 
 public struct PhotoCaptureDefaults {
@@ -242,6 +247,7 @@ public struct CameraFovResult: CustomStringConvertible {
 }
 
 public struct PhotoRequest {
+    public let presendThumbnail: Bool
     public let requestId: String
     public let size: PhotoSize
     public let mode: PhotoMode
@@ -283,7 +289,8 @@ public struct PhotoRequest {
         ispDigitalGain: Int? = nil,
         ispAnalogGain: String? = nil,
         mode: PhotoMode = .photo,
-        transferMethod: String = "auto"
+        transferMethod: String = "auto",
+        presendThumbnail: Bool = false
     ) {
         self.requestId = nonBlankRequestId(requestId) ?? generatedCameraRequestId("photo")
         self.size = size
@@ -304,6 +311,7 @@ public struct PhotoRequest {
         self.ispAnalogGain = ispAnalogGain
         self.mode = mode
         self.transferMethod = transferMethod
+        self.presendThumbnail = presendThumbnail
     }
 
     public static func from(params: [String: Any]) throws -> PhotoRequest {
@@ -386,7 +394,8 @@ public struct PhotoRequest {
             ispDigitalGain: optionalInt("ispDigitalGain"),
             ispAnalogGain: params["ispAnalogGain"] as? String,
             mode: PhotoMode(normalizedRawValue: params["mode"] as? String),
-            transferMethod: transferMethod
+            transferMethod: transferMethod,
+            presendThumbnail: params["presend_thumbnail"] as? Bool ?? false
         )
     }
 
@@ -437,7 +446,8 @@ public struct PhotoRequest {
             ispDigitalGain: ispDigitalGain,
             ispAnalogGain: ispAnalogGain,
             mode: mode,
-            transferMethod: transferMethod
+            transferMethod: transferMethod,
+            presendThumbnail: presendThumbnail
         )
     }
 }
@@ -863,4 +873,3 @@ public struct GalleryStatusEvent: CustomStringConvertible {
         "GalleryStatusEvent(total: \(total), photos: \(photos), videos: \(videos))"
     }
 }
-

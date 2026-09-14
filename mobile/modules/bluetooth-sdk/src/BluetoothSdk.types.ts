@@ -284,6 +284,7 @@ export type PhotoStatusState =
   | "uploaded"
   | "ready_for_transfer"
   | "transferring"
+  | "thumbnail_received"
   | "failed"
 
 export type PhotoResolvedConfig = {
@@ -360,6 +361,9 @@ export type PhotoStatusEvent = {
   captureMetadata?: PhotoCaptureMetadata
   errorCode?: string
   errorMessage?: string
+  /** Present on thumbnail_received: a JPEG data URI, not the final photo. */
+  thumbnailUrl?: string
+  fileSizeBytes?: number
 }
 
 export type CameraStatusEvent = {
@@ -561,7 +565,8 @@ export type PhotoCaptureDefaults = {
   /** When true, clears stored NR/edge/ISP presets on the glasses before applying other fields. */
   resetCaptureTuning?: boolean
 }
-export type PhotoCompression = "none" | "medium" | "heavy"
+/** `heavy` is the legacy alias for `high`. */
+export type PhotoCompression = "none" | "low" | "medium" | "high" | "heavy"
 
 export type VideoRecordingDefaults = {
   width: number
@@ -653,6 +658,8 @@ export type MicPreference = "auto" | "phone" | "glasses" | "bluetooth"
 export type MicMode = "phone" | "glasses" | "bluetoothClassic" | "bluetooth"
 
 export type PhotoRequestParams = {
+  /** Send a <=500px, quality-50 JPEG preview over BLE before the full photo. Default false. */
+  presend_thumbnail?: boolean
   requestId?: string
   appId?: string
   size: PhotoSize
@@ -688,7 +695,7 @@ export type WarmUpCameraParams = {
   size: PhotoSize
   mode?: PhotoMode
   exposureTimeNs?: number | null
-  /** Ready-state hold; defaults to 15 seconds and is capped at 60 seconds by ASG. */
+  /** Ready-state hold; defaults to 15 seconds and is capped at 5 minutes by ASG. */
   durationMs?: number
   /** ZSL preview buffering for the warm-up session. */
   zsl?: boolean
