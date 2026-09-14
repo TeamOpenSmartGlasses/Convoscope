@@ -5,7 +5,14 @@ import path from "node:path"
 import {fileURLToPath} from "node:url"
 
 import {createInitialPromotionRecord, promotionAssetName} from "./production-promotion-state.mjs"
-import {createReleasePlan, loadReleaseFamily, releaseRecordSha256, serializeReleaseRecord} from "./release-family.mjs"
+import {
+  buildNumberBelongsTo,
+  createReleasePlan,
+  loadReleaseFamily,
+  releaseRecordSha256,
+  serializeReleaseRecord,
+} from "./release-family.mjs"
+import {allocateStoreBuildNumber, appleBuilds, googleVersionCodes} from "./store-build-numbers.mjs"
 
 const COMMIT_PATTERN = /^[0-9a-f]{40}$/
 
@@ -23,6 +30,8 @@ function validateInventory(inventory, {bundleId, allowNoCurrent}) {
   if (inventory.google?.packageName !== bundleId) throw new Error(`Google inventory does not identify ${bundleId}`)
   requireInteger(inventory.apple.maxBuildNumber, `${bundleId} Apple maxBuildNumber`)
   requireInteger(inventory.google.maxVersionCode, `${bundleId} Google maxVersionCode`)
+  appleBuilds(inventory.apple, `${bundleId} Apple inventory`)
+  googleVersionCodes(inventory.google, `${bundleId} Google inventory`)
   if (!allowNoCurrent && (!inventory.apple.current || !Number.isSafeInteger(inventory.google.currentVersionCode))) {
     throw new Error(`${bundleId} has no current public store release`)
   }
@@ -108,14 +117,34 @@ export function prepareProductionPromotion({
   validateSelectedBeta({family, betaPlan, betaManifest})
   validateInventory(mentraInventory, {bundleId: "com.mentra.mentra", allowNoCurrent: false})
   const currentMentraApp = validateCurrentMentraApp(previousManifest, mentraInventory)
-  const lastMentraBuildNumber = Math.max(
-    mentraInventory.apple.maxBuildNumber,
-    mentraInventory.google.maxVersionCode,
-    betaPlan.native.buildNumber,
-  )
+  if (!buildNumberBelongsTo(family.familyBaseVersion, betaPlan.native.buildNumber)) {
+    throw new Error(
+      `Selected beta build number ${betaPlan.native.buildNumber} is outside the ${family.familyBaseVersion} family window`,
+    )
+  }
+  const mentraBuildNumber = allocateStoreBuildNumber({
+    marketingVersion: family.familyBaseVersion,
+    apple: mentraInventory.apple,
+    google: mentraInventory.google,
+    atLeast: [betaPlan.native.buildNumber],
+  })
+  // The compatibility lab rebuilds the current public app, so its number lives
+  // in that app's own family window, above what the stores hold there.
   const hasCompatibilityLab = currentMentraApp.provenance === "coordinated"
-  const compatibilityLabBuildNumber = hasCompatibilityLab ? lastMentraBuildNumber + 1 : null
-  const mentraBuildNumber = lastMentraBuildNumber + (hasCompatibilityLab ? 2 : 1)
+  const compatibilityLabBuildNumber = hasCompatibilityLab
+    ? allocateStoreBuildNumber({
+        marketingVersion: currentMentraApp.ios.marketingVersion,
+        apple: mentraInventory.apple,
+        google: mentraInventory.google,
+        atLeast: [currentMentraApp.ios.buildNumber, currentMentraApp.android.buildNumber],
+      })
+    : null
+  // Google Play only publishes a production release above the one it serves.
+  if (mentraBuildNumber <= mentraInventory.google.currentVersionCode) {
+    throw new Error(
+      `Candidate build number ${mentraBuildNumber} is not above the Google Play production version code ${mentraInventory.google.currentVersionCode}`,
+    )
+  }
   const productionPlan = createReleasePlan({
     family,
     channel: "production",

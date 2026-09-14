@@ -5,14 +5,14 @@ import path from "node:path"
 import test from "node:test"
 
 import {compareVersions, latestFlipDecision, npmMembersFromPlan, promoteNpmLatest} from "./promote-npm-latest.mjs"
-import {createReleasePlan, loadReleaseFamily} from "./release-family.mjs"
+import {createReleasePlan, familyBuildNumber, loadReleaseFamily} from "./release-family.mjs"
 
 const family = loadReleaseFamily()
 const plan = createReleasePlan({
   family,
   channel: "production",
   sourceCommit: "a".repeat(40),
-  nativeBuildNumber: 310000057,
+  nativeBuildNumber: familyBuildNumber(family.familyBaseVersion, 57),
 })
 const version = plan.releaseIdentity
 const candidateTag = `candidate-${version}`

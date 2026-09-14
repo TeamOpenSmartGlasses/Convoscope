@@ -170,8 +170,12 @@ test("inventories the current public App Store build and maximum allocated build
   const api = client([
     {
       data: [
-        {id: "build-20", attributes: {version: "20"}},
-        {id: "build-19", attributes: {version: "19"}},
+        {id: "build-20", attributes: {version: "20"}, relationships: {preReleaseVersion: {data: {id: "pre-31"}}}},
+        {id: "build-19", attributes: {version: "19"}, relationships: {preReleaseVersion: {data: {id: "pre-30"}}}},
+      ],
+      included: [
+        {type: "preReleaseVersions", id: "pre-30", attributes: {version: "3.0.0"}},
+        {type: "preReleaseVersions", id: "pre-31", attributes: {version: "3.1.0"}},
       ],
       links: {next: null},
     },
@@ -189,6 +193,11 @@ test("inventories the current public App Store build and maximum allocated build
     app: {id: "app-1", attributes: {bundleId: "com.mentra.mentra"}},
   })
   assert.equal(inventory.maxBuildNumber, 20)
+  assert.deepEqual(inventory.builds, [
+    {buildNumber: 19, marketingVersion: "3.0.0"},
+    {buildNumber: 20, marketingVersion: "3.1.0"},
+  ])
+  assert.match(api.calls[0].resource, /include=preReleaseVersion/)
   assert.deepEqual(inventory.current, {
     versionId: "version-30",
     buildId: "build-19",
@@ -209,6 +218,7 @@ test("allows a new App Store app with no public version", async () => {
   })
   assert.equal(inventory.current, null)
   assert.equal(inventory.maxBuildNumber, 0)
+  assert.deepEqual(inventory.builds, [])
 })
 
 test("can scope an exact build number to its marketing version", async () => {

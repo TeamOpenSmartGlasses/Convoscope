@@ -11,18 +11,20 @@ import {
   validateExampleReleaseRecord,
   verifyStarterKitResult,
 } from "./example-release-records.mjs"
-import {createReleasePlan, loadReleaseFamily} from "./release-family.mjs"
+import {createReleasePlan, familyBuildNumber, loadReleaseFamily} from "./release-family.mjs"
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..")
 const provenanceUrl = "https://github.com/Mentra-Community/MentraOS/actions/runs/123"
 
+const family = loadReleaseFamily({rootDir})
+
 function planFor(channel = "beta") {
   return createReleasePlan({
-    family: loadReleaseFamily({rootDir}),
+    family,
     channel,
     sequence: 57,
     sourceCommit: "a".repeat(40),
-    nativeBuildNumber: 310000057,
+    nativeBuildNumber: familyBuildNumber(family.familyBaseVersion, 57),
   })
 }
 
@@ -199,10 +201,10 @@ function productionFixtures() {
   const betaManifestUrl = `https://github.com/Mentra-Community/MentraOS/releases/download/${betaPlan.artifactContainerTag}/${betaPlan.artifactNames.releaseManifest}`
   const betaManifestSha256 = "b".repeat(64)
   const plan = createReleasePlan({
-    family: loadReleaseFamily({rootDir}),
+    family,
     channel: "production",
     sourceCommit: betaPlan.sourceCommit,
-    nativeBuildNumber: 310000058,
+    nativeBuildNumber: familyBuildNumber(family.familyBaseVersion, 58),
   })
   plan.promotion = {
     selectedBetaReleaseSetId: betaPlan.releaseSetId,
@@ -233,7 +235,7 @@ function productionFixtures() {
       releaseSetId: plan.releaseSetId,
       releaseIdentity: plan.releaseIdentity,
       channel: "production",
-      version: {marketingVersion: "3.1.0", buildNumber: 310000058},
+      version: {marketingVersion: "3.1.0", buildNumber: familyBuildNumber(family.familyBaseVersion, 58)},
       group: {id: "group-2", name: "Mentra Bluetooth Example"},
       distribution: {
         audience: "external",
@@ -247,7 +249,7 @@ function productionFixtures() {
       releaseSetId: plan.releaseSetId,
       releaseIdentity: plan.releaseIdentity,
       channel: "production",
-      version: {marketingVersion: "3.1.0", buildNumber: 310000058},
+      version: {marketingVersion: "3.1.0", buildNumber: familyBuildNumber(family.familyBaseVersion, 58)},
       track: "Mentra Bluetooth Example Production Candidates",
       distribution: {...exampleGooglePlay.distribution, audience: "internal"},
       aab: {
@@ -281,7 +283,7 @@ test("a production example is finalized against the promoted beta's manifest and
   const record = assembleProduction()
   assert.equal(record.channel, "production")
   assert.equal(record.releaseIdentity, "3.1.0")
-  assert.equal(record.native.buildNumber, 310000058)
+  assert.equal(record.native.buildNumber, familyBuildNumber(family.familyBaseVersion, 58))
   assert.equal(record.betaManifest.name, `mentra-release-${f.betaPlan.releaseIdentity}.json`)
   assert.equal(record.promotion.selectedBetaIdentity, f.betaPlan.releaseIdentity)
   assert.equal(record.promotion.storePromotion, "never")

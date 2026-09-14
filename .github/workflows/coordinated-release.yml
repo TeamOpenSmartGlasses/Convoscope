@@ -133,7 +133,7 @@ jobs:
             --branch "${{ github.ref_name }}" \
             --sequence "${{ github.run_number }}" \
             --source-commit "${{ github.sha }}" \
-            --native-build-number "$((310000000 + ${{ github.run_number }}))" \
+            --native-build-sequence "${{ github.run_number }}" \
             --ota-inputs ota-release-inputs.json \
             --require-version-mirrors true \
             --public-beta-testflight true \
@@ -147,7 +147,7 @@ jobs:
             --branch "${{ github.ref_name }}" \
             --sequence "${{ github.run_number }}" \
             --source-commit "${{ github.sha }}" \
-            --native-build-number "$((310000000 + ${{ github.run_number }}))" \
+            --native-build-sequence "${{ github.run_number }}" \
             --ota-inputs ota-release-inputs.json \
             --require-version-mirrors true \
             --public-beta-testflight true \
