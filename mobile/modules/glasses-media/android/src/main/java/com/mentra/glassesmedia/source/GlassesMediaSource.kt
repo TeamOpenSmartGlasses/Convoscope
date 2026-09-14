@@ -158,8 +158,10 @@ class GlassesMediaController(
 
   /** Close the retiring listener now, skipping the tombstone. Only for a barrier that timed out. */
   fun forceCloseIngest() {
+    // Do not drop the handle here: the host re-asks awaitIngestClosed after this to verify the port
+    // was released, and a null reference answers `true` unconditionally, hiding a failed close. The
+    // next retire() reassigns retiringIngest, so keeping the closed one until then is harmless.
     retiringIngest?.forceCloseIngest()
-    retiringIngest = null
   }
 
   fun setPcmDeliveryEnabled(enabled: Boolean) {

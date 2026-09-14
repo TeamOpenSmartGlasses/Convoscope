@@ -193,8 +193,11 @@ class LocalWhipIngestSource(
    * than a next call that cannot bind its port.
    */
   fun forceCloseIngest() {
+    // Keep the handle: forceSoftapCleanup re-asks awaitIngestClosed to confirm the port is really
+    // free. Nulling here would make that check read `null -> true` and mask a closeNow that threw,
+    // so the next Start binds a port this listener still holds. closeNow/awaitClosed are idempotent,
+    // and a fresh stop() reassigns `retiring`, so leaving it set is safe.
     (retiring ?: server)?.let { runCatching { it.closeNow() } }
-    retiring = null
   }
 
   /** Terminal teardown for owners that discard this receiver instead of reusing its factory. */
@@ -744,7 +747,10 @@ class LocalWhipIngestSource(
   private fun noteIngestStall(gen: Int, iceState: String, fps: Double, frames: Long) {
     val verdict = frameStall.sample(
       live = state == SourceState.LIVE,
-      iceConnected = iceState == "connected",
+      // Host-only SoftAP settles on COMPLETED, not CONNECTED, and stays there for the whole call.
+      // Treating only "connected" as live would reset the stall count every sample — the same
+      // steady state onIceConnectionChange and WHEP both count as healthy — and never fail a freeze.
+      iceConnected = iceState == "connected" || iceState == "completed",
       fps = fps,
     )
     if (verdict !is FrameStallGate.Verdict.Stalled) return
