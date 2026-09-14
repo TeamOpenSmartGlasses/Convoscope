@@ -528,7 +528,7 @@ jobs:
       # Internal App Sharing has no version-code floor, so it distributes
       # Play-signed builds whose numbers sit below what a track already serves.
       - name: Upload exact AAB to Google Play Internal App Sharing
-        if: inputs.dry_run != true && inputs.play_track == 'internal-app-sharing'
+        if: inputs.dry_run != true && inputs.play_track == 'internal-app-sharing' && needs.prepare.outputs.upload_google_play == 'true'
         run: >-
           node ${{ inputs.compatibility_lab && 'production-tools' || '.' }}/.github/scripts/google-play-internal-sharing.mjs
           --credentials "$GOOGLE_PLAY_JSON_KEY"
@@ -547,7 +547,7 @@ jobs:
           --aab "mobile-release/android/${{ needs.prepare.outputs.aab_name }}"
           --aab-url "${{ needs.prepare.outputs.asset_base_url }}/${{ needs.prepare.outputs.aab_name }}"
           --play-track "${{ inputs.play_track }}"
-          ${{ inputs.dry_run != true && inputs.play_track == 'internal-app-sharing' && '--internal-sharing mobile-release/android-internal-sharing.json' || '' }}
+          ${{ inputs.dry_run != true && inputs.play_track == 'internal-app-sharing' && needs.prepare.outputs.upload_google_play == 'true' && '--internal-sharing mobile-release/android-internal-sharing.json' || '' }}
           --status "$STATUS"
           --provenance-url "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           --output mobile-release/android-publication.json
@@ -557,7 +557,7 @@ jobs:
         run: |
           set -euo pipefail
           url=""
-          if [[ "${{ inputs.play_track }}" == internal-app-sharing && "${{ inputs.dry_run }}" != true ]]; then
+          if [[ "${{ inputs.play_track }}" == internal-app-sharing && "${{ inputs.dry_run }}" != true && "${{ needs.prepare.outputs.upload_google_play }}" == true ]]; then
             url=$(jq -er '.publications.mentraos["google-play"].url' mobile-release/android-publication.json)
           fi
           echo "install_url=$url" >> "$GITHUB_OUTPUT"

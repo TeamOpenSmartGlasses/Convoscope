@@ -1,4 +1,5 @@
 import assert from "node:assert/strict"
+import {spawnSync} from "node:child_process"
 import {mkdtempSync, readFileSync, rmSync, writeFileSync} from "node:fs"
 import {tmpdir} from "node:os"
 import path from "node:path"
@@ -150,6 +151,7 @@ test("the mobile workflow gates only Play operations, preserving Android artifac
     "Install Google Play upload tooling",
     "Check selected Google Play track",
     "Upload exact AAB to Google Play",
+    "Upload exact AAB to Google Play Internal App Sharing",
   ]) {
     const block = workflow.split(`      - name: ${name}\n`)[1].split("\n      - ")[0]
     assert.match(block, /if: .*needs.prepare.outputs.upload_google_play == 'true'/)
@@ -171,4 +173,49 @@ test("the mobile workflow gates only Play operations, preserving Android artifac
   const submission = readFileSync(new URL("../workflows/production-release-store-submit.yml", import.meta.url), "utf8")
   assert.match(submission, /--required-state submitted/)
   assert.doesNotMatch(submission, /GOOGLE_PLAY_SOURCE_TRACK/)
+})
+
+// The pause is decided at the CLI boundary, where the coordinator's plan job
+// calls the script; the library default is to upload.
+test("the plan CLI pauses Google Play for dev and keeps it for staging", (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "dev-play-pause-cli-"))
+  t.after(() => rmSync(root, {recursive: true, force: true}))
+  const repositoryRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), "../..")
+  const otaInputs = path.join(root, "ota-inputs.json")
+  const collected = spawnSync(
+    process.execPath,
+    [".github/scripts/collect-ota-release-inputs.mjs", "asg_client/ota_manifests/firmware_live.json", otaInputs],
+    {cwd: repositoryRoot, encoding: "utf8"},
+  )
+  assert.equal(collected.status, 0, collected.stderr)
+  const planFor = (branch) => {
+    const output = path.join(root, `${branch}.json`)
+    const result = spawnSync(
+      process.execPath,
+      [
+        ".github/scripts/create-release-plan.mjs",
+        "--branch",
+        branch,
+        "--sequence",
+        "1",
+        "--source-commit",
+        "a".repeat(40),
+        "--native-build-sequence",
+        "1",
+        "--ota-inputs",
+        otaInputs,
+        "--output",
+        output,
+      ],
+      {cwd: repositoryRoot, encoding: "utf8"},
+    )
+    assert.equal(result.status, 0, result.stderr)
+    return JSON.parse(readFileSync(output, "utf8"))
+  }
+  const dev = planFor("dev")
+  assert.equal(dev.native.googlePlayUpload, false)
+  assert.deepEqual(dev.members.mentraos.publishTargets, ["app-store-connect"])
+  const staging = planFor("staging")
+  assert.equal(staging.native.googlePlayUpload, undefined)
+  assert.ok(staging.members.mentraos.publishTargets.includes("google-play"))
 })
