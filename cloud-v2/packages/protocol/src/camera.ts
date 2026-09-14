@@ -49,21 +49,29 @@ export function normalizePhotoSizeTier(value: string): PhotoSizeTier {
   }
 }
 
+/**
+ * Device-canonical photo compression tier (matches miniapp SDK and ASG). Compression selects
+ * JPEG quality only; pixel dimensions come from `size`.
+ */
+export const photoCompressCanonicalSchema = z.enum(["none", "low", "medium", "high"]);
+export type PhotoCompressTier = z.infer<typeof photoCompressCanonicalSchema>;
+
+/** Accepted on the wire: canonical tiers plus the legacy `heavy` alias for `high`. */
 const photoCompressInputSchema = z.enum(["none", "low", "medium", "high", "heavy"]);
 
-/** Normalize compression aliases to the cloud wire enum. */
-export function normalizePhotoCompress(
-  value: string,
-): "none" | "medium" | "heavy" {
+/**
+ * Normalize a photo compression string to the device-canonical tier.
+ * Legacy alias: heavy→high. `low` and `high` are distinct tiers and are preserved.
+ */
+export function normalizePhotoCompress(value: string): PhotoCompressTier {
   switch (value) {
+    case "heavy":
+      return "high";
+    case "none":
     case "low":
     case "medium":
-      return "medium";
     case "high":
-    case "heavy":
-      return "heavy";
-    case "none":
-      return "none";
+      return value;
     default:
       throw new Error(`invalid photo compress: ${value}`);
   }

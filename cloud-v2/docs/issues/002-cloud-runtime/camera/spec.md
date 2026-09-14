@@ -18,10 +18,12 @@ learns of completion from the storage provider's event, then notifies the phone.
 1. `POST /api/camera/photo`
    ```
    Authorization: Bearer <cloud-runtime token>
-   { "size"?: "low|medium|high|max", "compress"?: "none|medium|heavy", "saveToGallery"?: bool, "sound"?: bool }
+   { "size"?: "low|medium|high|max", "compress"?: "none|low|medium|high", "saveToGallery"?: bool, "sound"?: bool }
    Legacy aliases are also accepted on input and normalized server-side:
-   `small→low`, `large→high`, `full→max`. Compression aliases `low`/`high`
-   normalize to `medium`/`heavy`.
+   `small→low`, `large→high`, `full→max` for size, and `heavy→high` for
+   compress. `compress` selects JPEG quality only (`none` Q95, `low` Q88,
+   `medium` Q78, `high` Q60 on the BLE path; `none` uploads the capture
+   untouched over Wi-Fi); `size` alone bounds pixel dimensions.
    -> { "requestId": string, "uploadUrl": string, "readUrl": string }
    ```
    The cloud records a pending request keyed by `requestId`, generates a
