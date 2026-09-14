@@ -156,7 +156,7 @@ test("waits for npm to serve the moved latest before trusting the read-back", ()
   })
   assert.equal(sleeps, 2 * members.length)
   assert.ok(members.every((name) => result.publications[name].npm.status === "published"))
-  assert.ok(members.every((name) => lagging.fake.commands.includes(`npm dist-tag rm ${name} ${candidateTag}`)))
+  assert.ok(!lagging.fake.commands.some((command) => command.includes("dist-tag rm")))
 
   const stuck = staleReads(100)
   let stuckSleeps = 0
