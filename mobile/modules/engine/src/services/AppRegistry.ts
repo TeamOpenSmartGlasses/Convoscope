@@ -23,7 +23,7 @@ import {unzip} from "react-native-zip-archive"
 import semver from "semver"
 import {AsyncResult, Result, result as Res} from "typesafe-ts"
 
-import type {AppletPermission, AppPermissionType, AppletType, ClientApp} from "../types/applet"
+import type {AppletType, ClientApp} from "../types/applet"
 import {HardwareRequirement, HardwareRequirementLevel, HardwareType} from "../types"
 import {configuredDevHost} from "../utils/configuredDevHost"
 import {storage} from "../utils/storage/storage"
@@ -31,10 +31,12 @@ import {printDirectory} from "../utils/storage/zip"
 import {isInstalledMiniappAllowed, isOfflineSystemMiniappAllowed} from "../runtime/bootstrap"
 import {checkManifestVersions} from "./manifestVersionGate"
 import {normalizeManifestActions} from "./manifestActions"
+import {normalizeManifestPermissions} from "./manifestPermissions"
 import {miniappInstallIdentityError, type MiniappInstallExpectations} from "./miniappInstallIdentity"
 import {miniappRunningRegistry} from "./MiniappRunningRegistry"
 
 export {normalizeManifestActions} from "./manifestActions"
+export {normalizeManifestPermissions} from "./manifestPermissions"
 
 let installQueue: Promise<void> = Promise.resolve()
 
@@ -45,45 +47,6 @@ function serializeInstall<T>(operation: () => Promise<T>): Promise<T> {
     () => undefined,
   )
   return result
-}
-
-const ALLOWED_PERMISSION_TYPES: ReadonlySet<AppPermissionType> = new Set<AppPermissionType>([
-  "MICROPHONE",
-  "CAMERA",
-  "CALENDAR",
-  "LOCATION",
-  "BACKGROUND_LOCATION",
-  "READ_NOTIFICATIONS",
-  "POST_NOTIFICATIONS",
-])
-
-/**
- * Normalize the `permissions` field from a miniapp.json manifest.
- *
- * New miniapps ship `[{type, required?, description?}]` objects. A few older
- * installed bundles may have `["MICROPHONE", ...]` plain strings. Accept both.
- */
-export function normalizeManifestPermissions(
-  raw: Array<string | {type: string; required?: boolean; description?: string}> | undefined,
-): AppletPermission[] {
-  if (!Array.isArray(raw)) return []
-  const out: AppletPermission[] = []
-  for (const p of raw) {
-    if (typeof p === "string") {
-      if (ALLOWED_PERMISSION_TYPES.has(p as AppPermissionType)) {
-        out.push({type: p as AppPermissionType, required: true})
-      }
-    } else if (p && typeof p === "object" && typeof p.type === "string") {
-      if (ALLOWED_PERMISSION_TYPES.has(p.type as AppPermissionType)) {
-        out.push({
-          type: p.type as AppPermissionType,
-          ...(typeof p.required === "boolean" ? {required: p.required} : {}),
-          ...(typeof p.description === "string" ? {description: p.description} : {}),
-        })
-      }
-    }
-  }
-  return out
 }
 
 function normalizeManifestType(raw: unknown): AppletType {

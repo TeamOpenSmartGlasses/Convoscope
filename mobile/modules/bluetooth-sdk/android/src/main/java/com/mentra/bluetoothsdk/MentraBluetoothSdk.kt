@@ -19,6 +19,8 @@ import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 
 class MentraBluetoothSdk private constructor(
@@ -73,6 +75,7 @@ class MentraBluetoothSdk private constructor(
     private var pendingWifiStatus: PendingWifiStatusRequest? = null
     private var pendingWifiForget: PendingWifiForgetRequest? = null
     private var pendingHotspotStatus: PendingHotspotStatusRequest? = null
+    private val hotspotMutex = Mutex()
     private var pendingVersionInfo: PendingVersionInfoRequest? = null
     private val wifiSessionCapabilities = WifiSessionCapabilities()
     @Volatile private var configuredOtaVersionUrl: String? = null
@@ -1030,23 +1033,23 @@ class MentraBluetoothSdk private constructor(
     }
 
     suspend fun setHotspotState(enabled: Boolean): HotspotStatusEvent {
-        val pending = PendingResponse<HotspotStatusEvent>("hotspot ${if (enabled) "enable" else "disable"} request")
-        synchronized(oneShotLock) {
-            if (pendingHotspotStatus != null) {
-                throw BluetoothSdkException(
-                    "request_in_flight",
-                    "A hotspot command is already waiting for a glasses response.",
-                )
-            }
-            pendingHotspotStatus = PendingHotspotStatusRequest(enabled, pending)
-        }
-        try {
-            deviceManager.setHotspotState(enabled)
-            return pending.await()
-        } finally {
+        // SoftAP teardown disables from the transport and again from the host
+        // barrier. Throwing request_in_flight on the second disable recorded a
+        // cleanup error that refused the next join. Queue instead: same-state
+        // and opposite-state both wait their turn, then send.
+        return hotspotMutex.withLock {
+            val pending = PendingResponse<HotspotStatusEvent>("hotspot ${if (enabled) "enable" else "disable"} request")
             synchronized(oneShotLock) {
-                if (pendingHotspotStatus?.pending === pending) {
-                    pendingHotspotStatus = null
+                pendingHotspotStatus = PendingHotspotStatusRequest(enabled, pending)
+            }
+            try {
+                deviceManager.setHotspotState(enabled)
+                pending.await()
+            } finally {
+                synchronized(oneShotLock) {
+                    if (pendingHotspotStatus?.pending === pending) {
+                        pendingHotspotStatus = null
+                    }
                 }
             }
         }

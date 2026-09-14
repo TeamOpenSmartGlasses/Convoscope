@@ -292,6 +292,9 @@ public final class MentraBluetoothSDK {
     private var pendingWifiStatus: PendingWifiStatusRequest?
     private var pendingWifiForget: PendingWifiForgetRequest?
     private var pendingHotspotStatus: PendingHotspotStatusRequest?
+    /// Serializes enable/disable so SoftAP teardown's second disable waits
+    /// instead of throwing `request_in_flight` and refusing the next join.
+    private var hotspotTail: Task<HotspotStatusEvent, Error>?
     private var pendingVersionInfo: PendingVersionInfoRequest?
     private let wifiSessionCapabilities = WifiSessionCapabilities()
     private var configuredOtaVersionUrl: String?
@@ -1058,29 +1061,34 @@ public final class MentraBluetoothSDK {
     }
 
     public func setHotspotState(enabled: Bool) async throws -> HotspotStatusEvent {
-        guard pendingHotspotStatus == nil else {
-            throw BluetoothSdkError(
-                code: "request_in_flight",
-                message: "A hotspot command is already waiting for a glasses response."
+        let previous = hotspotTail
+        let task = Task { @MainActor [weak self] in
+            guard let self else {
+                throw BluetoothSdkError(code: "sdk_closed", message: "Bluetooth SDK is closed.")
+            }
+            if let previous {
+                _ = try? await previous.value
+            }
+            let pending = PendingResponse<HotspotStatusEvent>(
+                operation: "hotspot \(enabled ? "enable" : "disable") request"
             )
-        }
-        let pending = PendingResponse<HotspotStatusEvent>(
-            operation: "hotspot \(enabled ? "enable" : "disable") request"
-        )
-        pendingHotspotStatus = PendingHotspotStatusRequest(enabled: enabled, pending: pending)
-        DeviceManager.shared.setHotspotState(enabled)
-        do {
-            let event = try await pending.wait()
-            if pendingHotspotStatus?.pending === pending {
-                pendingHotspotStatus = nil
+            self.pendingHotspotStatus = PendingHotspotStatusRequest(enabled: enabled, pending: pending)
+            DeviceManager.shared.setHotspotState(enabled)
+            do {
+                let event = try await pending.wait()
+                if self.pendingHotspotStatus?.pending === pending {
+                    self.pendingHotspotStatus = nil
+                }
+                return event
+            } catch {
+                if self.pendingHotspotStatus?.pending === pending {
+                    self.pendingHotspotStatus = nil
+                }
+                throw error
             }
-            return event
-        } catch {
-            if pendingHotspotStatus?.pending === pending {
-                pendingHotspotStatus = nil
-            }
-            throw error
         }
+        hotspotTail = task
+        return try await task.value
     }
 
     /// Fire-and-forget Mentra Live Wi-Fi ADB toggle. Glasses do not ack this
