@@ -3999,11 +3999,6 @@ public class MediaCaptureService {
         Log.d(TAG, "📸 Processing photo upload with SDK compression setting: " + compress);
 
         PhotoCompression policy = PhotoCompression.fromValue(compress);
-        if (policy == PhotoCompression.NONE) {
-            // The untouched capture keeps the camera's EXIF block, orientation included.
-            performDirectUpload(uploadPath, requestId, webhookUrl, authToken);
-            return;
-        }
         sendPhotoStatus(requestId, "compressing");
         compressImageForUpload(uploadPath, requestId, webhookUrl, authToken, policy);
     }

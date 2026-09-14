@@ -24,15 +24,22 @@ public class PhotoCompressionTest {
 
   @Test
   public void everySpellingUsesTheSameQualityForUploadBleAndWifiFallback() throws Exception {
-    String[] spellings = {"none", "low", "medium", "high", "heavy"};
-    int[] qualities = {95, 88, 78, 60, 60};
+    // Exercise the camera's size-dependent source qualities, including a Q95 source.
+    for (int captureQuality : new int[] {70, 80, 85, 95}) {
+      checkTransportParity(captureQuality);
+    }
+  }
+
+  private void checkTransportParity(int captureQuality) throws Exception {
+    String[] spellings = {"none", "low", "medium", "high", "heavy", null, ""};
+    int[] qualities = {95, 88, 78, 60, 60, 95, 95};
     Bitmap sensor = Bitmap.createBitmap(120, 80, Bitmap.Config.ARGB_8888);
     for (int y = 0; y < 80; y++) {
       for (int x = 0; x < 120; x++) sensor.setPixel(x, y, 0xff000000 | x * 131071 + y * 8191);
     }
-    File original = files.newFile("original.jpg");
+    File original = files.newFile("original-" + captureQuality + ".jpg");
     ByteArrayOutputStream capture = new ByteArrayOutputStream();
-    assertTrue(sensor.compress(Bitmap.CompressFormat.JPEG, 100, capture));
+    assertTrue(sensor.compress(Bitmap.CompressFormat.JPEG, captureQuality, capture));
     sensor.recycle();
     byte[] capturedBytes = capture.toByteArray();
     Files.write(original.toPath(), capturedBytes);
@@ -40,14 +47,8 @@ public class PhotoCompressionTest {
     for (int i = 0; i < spellings.length; i++) {
       PhotoCompression policy = PhotoCompression.fromValue(spellings[i]);
       assertEquals(qualities[i], policy.jpegQuality);
-      File upload = files.newFile(spellings[i] + ".jpg");
+      File upload = files.newFile("upload-" + captureQuality + "-" + i + ".jpg");
       String uploaded = policy.prepareUpload(original.getPath(), upload.getPath());
-      if (policy == PhotoCompression.NONE) {
-        // none uploads the capture itself; only the BLE resize forces a Q95 re-encode.
-        assertEquals(original.getPath(), uploaded);
-        assertEquals(0, upload.length());
-        continue;
-      }
       assertEquals(upload.getPath(), uploaded);
       byte[] direct = Files.readAllBytes(upload.toPath());
       Bitmap ramCapture = BitmapFactory.decodeByteArray(capturedBytes, 0, capturedBytes.length);
@@ -74,24 +75,38 @@ public class PhotoCompressionTest {
   }
 
   @Test
-  public void reencodedUploadKeepsExifOrientation() throws Exception {
-    Bitmap sensor = Bitmap.createBitmap(40, 20, Bitmap.Config.ARGB_8888);
-    File original = files.newFile("rotated.jpg");
-    try (java.io.FileOutputStream out = new java.io.FileOutputStream(original)) {
-      assertTrue(sensor.compress(Bitmap.CompressFormat.JPEG, 100, out));
-    }
-    sensor.recycle();
-    ExifInterface exif = new ExifInterface(original.getPath());
-    exif.setAttribute(ExifInterface.TAG_ORIENTATION,
-        String.valueOf(ExifInterface.ORIENTATION_ROTATE_90));
-    exif.saveAttributes();
+  public void everyUploadLevelPreservesOrientationImuAndOriginalCapture() throws Exception {
+    String[] spellings = {"none", "low", "medium", "high", "heavy", null, ""};
+    String imuJson = "{\"samples\":[{\"t\":1,\"x\":0.5}]}";
+    String captureId = "0123456789abcdef0123456789abcdef";
+    // All eight EXIF transforms, including mirrored orientations, retain their meaning
+    // because prepareUpload preserves pixel geometry rather than rotating the bitmap.
+    for (int orientation = 1; orientation <= 8; orientation++) {
+      Bitmap sensor = Bitmap.createBitmap(40, 20, Bitmap.Config.ARGB_8888);
+      File original = files.newFile("oriented-" + orientation + ".jpg");
+      try (java.io.FileOutputStream out = new java.io.FileOutputStream(original)) {
+        assertTrue(sensor.compress(Bitmap.CompressFormat.JPEG, 70, out));
+      }
+      sensor.recycle();
+      ExifInterface exif = new ExifInterface(original.getPath());
+      exif.setAttribute(ExifInterface.TAG_ORIENTATION, String.valueOf(orientation));
+      exif.setAttribute(ExifInterface.TAG_USER_COMMENT, imuJson);
+      exif.setAttribute(ExifInterface.TAG_IMAGE_UNIQUE_ID, captureId);
+      exif.saveAttributes();
+      byte[] capturedBytes = Files.readAllBytes(original.toPath());
 
-    File upload = files.newFile("rotated-low.jpg");
-    PhotoCompression.LOW.prepareUpload(original.getPath(), upload.getPath());
-
-    assertEquals(ExifInterface.ORIENTATION_ROTATE_90,
-        new ExifInterface(upload.getPath()).getAttributeInt(
+      for (int i = 0; i < spellings.length; i++) {
+        File upload = files.newFile("oriented-upload-" + orientation + "-" + i + ".jpg");
+        assertEquals(upload.getPath(), PhotoCompression.fromValue(spellings[i])
+            .prepareUpload(original.getPath(), upload.getPath()));
+        ExifInterface result = new ExifInterface(upload.getPath());
+        assertEquals(orientation, result.getAttributeInt(
             ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_UNDEFINED));
+        assertEquals(imuJson, result.getAttribute(ExifInterface.TAG_USER_COMMENT));
+        assertEquals(captureId, result.getAttribute(ExifInterface.TAG_IMAGE_UNIQUE_ID));
+        assertArrayEquals(capturedBytes, Files.readAllBytes(original.toPath()));
+      }
+    }
   }
 
   @Test

@@ -29,13 +29,12 @@ enum PhotoCompression {
   }
 
   /**
-   * Returns the file to upload. {@code NONE} uploads the untouched capture, so every EXIF tag the
-   * camera wrote (orientation included) survives. Other levels re-encode at {@link #jpegQuality}
-   * without resizing and carry the orientation and IMU metadata over, because a decoded bitmap
-   * loses the EXIF block. BLE fallback must reuse the original capture, never the upload copy.
+   * Re-encodes every level at {@link #jpegQuality}, including NONE at Q95: source captures use
+   * size-dependent quality and cannot substitute for the delivery policy. Pixel geometry stays
+   * unchanged, so copy orientation and IMU metadata rather than rotating pixels. BLE fallback
+   * must reuse the original capture, never the upload copy.
    */
   String prepareUpload(String originalPath, String uploadPath) throws IOException {
-    if (this == NONE) return originalPath;
     Bitmap source = BitmapFactory.decodeFile(originalPath);
     if (source == null) throw new IOException("Could not decode photo for upload");
     try (FileOutputStream output = new FileOutputStream(uploadPath)) {
