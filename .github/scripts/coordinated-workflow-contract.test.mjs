@@ -119,7 +119,9 @@ test("production promotion is resumable and keeps irreversible actions behind se
   // The candidate already sits on the production track as a draft; submission
   // verifies it and never promotes from a testing track.
   assert.doesNotMatch(submit, /promote_google_play|GOOGLE_PLAY_SOURCE_TRACK/)
-  assert.match(submit, /Verify the exact Google Play production draft/)
+  assert.match(submit, /Verify the exact Google Play production release is held for review/)
+  assert.match(submit, /id: asc-before/)
+  assert.match(submit, /if: steps\.asc-before\.outputs\.promoted != 'true'/)
   assert.doesNotMatch(submit, /automatic_release: true/)
   assert.doesNotMatch(release, /automatic_release: true/)
   assert.match(rollout, /\[\[ "\$percent" -lt 100 \]\]/)
@@ -137,7 +139,8 @@ test("production promotion is resumable and keeps irreversible actions behind se
     assert.match(source, /production-promotion-assets\.mjs prepare-evidence/)
   }
   assert.match(submit, /validate-google-play-release\.mjs/)
-  assert.match(submit, /--required-state draft/)
+  assert.match(submit, /--required-state submitted/)
+  assert.doesNotMatch(submit, /--required-state draft/)
   assert.match(release, /validate-google-play-release\.mjs/)
   assert.match(release, /--required-state public/)
   assert.doesNotMatch(release, /\.tracks\.production \| map\(tonumber\)/)
