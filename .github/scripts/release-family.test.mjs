@@ -53,6 +53,9 @@ test("loads the repository release family and derives dependency-first publicati
   assert.deepEqual(family.products, ["mentraos", "@mentra/engine", "@mentra/bluetooth-sdk"])
   assert.equal(family.members.length, 10)
   assert.ok(
+    family.publicationOrder.indexOf("@mentra/cloud-protocol") < family.publicationOrder.indexOf("@mentra/bluetooth-sdk"),
+  )
+  assert.ok(
     family.publicationOrder.indexOf("@mentra/glasses-media") < family.publicationOrder.indexOf("@mentra/acs-meeting"),
   )
   assert.ok(family.publicationOrder.indexOf("@mentra/jspolyfill") < family.publicationOrder.indexOf("@mentra/crust"))
@@ -126,6 +129,7 @@ test("creates a deterministic release plan with exact dependency versions", () =
   assert.equal(plan.products["@mentra/engine"], releaseIdentity)
   assert.equal(plan.members["@mentra/engine"].dependencies["@mentra/bluetooth-sdk"], releaseIdentity)
   assert.equal(plan.members["@mentra/bluetooth-sdk"].publishTargets.length, 3)
+  assert.equal(plan.members["@mentra/bluetooth-sdk"].dependencies["@mentra/cloud-protocol"], releaseIdentity)
   assert.equal(plan.artifactNames.otaManifest, `mentra-live-ota-${releaseIdentity}.json`)
   assert.equal(plan.artifactNames.otaBundle, `mentra-live-ota-bundle-${releaseIdentity}.zip`)
   assert.equal(plan.artifactNames.asgSelection, `mentra-live-asg-selection-${releaseIdentity}.json`)

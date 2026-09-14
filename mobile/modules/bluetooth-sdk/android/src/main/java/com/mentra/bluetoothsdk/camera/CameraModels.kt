@@ -60,7 +60,7 @@ enum class PhotoCompression(val value: String) {
     companion object {
         @JvmStatic
         fun fromValue(value: Any?): PhotoCompression =
-            if (value == null) NONE else values().firstOrNull { it.value == value }
+            values().firstOrNull { it.value == value }
                 ?: throw IllegalArgumentException("Invalid photo compression $value. Expected none, low, medium, or high.")
     }
 }
@@ -78,7 +78,26 @@ data class PhotoCaptureDefaults(
     val compress: PhotoCompression? = null,
     val sound: Boolean? = null,
     val resetCaptureTuning: Boolean = false,
-)
+) {
+    companion object {
+        @JvmStatic
+        fun fromMap(values: Map<String, Any?>): PhotoCaptureDefaults =
+            PhotoCaptureDefaults(
+                size = (values["size"] as? String)?.let { PhotoSize.fromValue(it) },
+                mfnr = values["mfnr"] as? Boolean,
+                zsl = values["zsl"] as? Boolean,
+                noiseReduction = values["noiseReduction"] as? Boolean,
+                edgeEnhancement = values["edgeEnhancement"] as? Boolean,
+                ispDigitalGain = (values["ispDigitalGain"] as? Number)?.toInt(),
+                ispAnalogGain = values["ispAnalogGain"] as? String,
+                aeExposureDivisor = (values["aeExposureDivisor"] as? Number)?.toInt(),
+                isoCap = (values["isoCap"] as? Number)?.toInt(),
+                compress = if (values.containsKey("compress")) PhotoCompression.fromValue(values["compress"]) else null,
+                sound = values["sound"] as? Boolean,
+                resetCaptureTuning = values["resetCaptureTuning"] as? Boolean == true,
+            )
+    }
+}
 
 data class VideoRecordingDefaults(
     val width: Int,
@@ -222,7 +241,7 @@ data class PhotoRequest @JvmOverloads constructor(
 
         /** Mirrors iOS `BluetoothSdkModule` defaults for keys omitted from the JS bridge. */
         @JvmStatic
-        fun fromMap(values: Map<String, Any>): PhotoRequest {
+        fun fromMap(values: Map<String, Any?>): PhotoRequest {
             val rawExp = values["exposureTimeNs"] ?: values["exposure_time_ns"]
             val exposureTimeNs: Double? =
                 when (rawExp) {
@@ -252,7 +271,7 @@ data class PhotoRequest @JvmOverloads constructor(
                 size = PhotoSize.fromValue(stringValue(values, "size") ?: "medium"),
                 webhookUrl = stringValue(values, "webhookUrl", "webhook_url").orEmpty(),
                 authToken = stringValue(values, "authToken", "auth_token")?.takeIf { it.isNotBlank() },
-                compress = PhotoCompression.fromValue(values["compress"]),
+                compress = if (values.containsKey("compress")) PhotoCompression.fromValue(values["compress"]) else PhotoCompression.NONE,
                 save = boolValue(values, "save", "saveToGallery") ?: false,
                 sound = boolValue(values, "sound") ?: true,
                 mode = PhotoMode.fromValue(stringValue(values, "mode")),

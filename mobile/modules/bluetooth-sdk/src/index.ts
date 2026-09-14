@@ -4,6 +4,7 @@ import type {
   BluetoothSdkEventListener,
   BluetoothSdkEventName,
   BluetoothSdkPublicModule,
+  PhotoCaptureDefaults,
   PublicBluetoothStatus,
   PublicGlassesStatus,
   VideoRecordingDefaults,
@@ -134,7 +135,7 @@ export const BluetoothSdk: BluetoothSdkPublicModule = Object.freeze({
    * `requestPhoto(...)` options (e.g. `mode: "text"` for text sensor size/crop, or explicit per-shot
    * fields). Still functional until removed in a future release.
    */
-  setPhotoCaptureDefaults: (settings) => {
+  setPhotoCaptureDefaults: (settings: PhotoCaptureDefaults) => {
     if (settings.compress !== undefined) parsePhotoCompression(settings.compress)
     return bindPublicMethod("setPhotoCaptureDefaults")(settings)
   },

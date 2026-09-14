@@ -1,5 +1,6 @@
 package com.mentra.bluetoothsdk.camera
 
+import com.mentra.bluetoothsdk.PhotoCaptureDefaults
 import com.mentra.bluetoothsdk.PhotoCompression
 import com.mentra.bluetoothsdk.PhotoMode
 import com.mentra.bluetoothsdk.PhotoRequest
@@ -17,10 +18,18 @@ class PhotoRequestTest {
         }
         assertThat(PhotoRequest(size = PhotoSize.MEDIUM, webhookUrl = "https://example.com/upload", sound = true).compress).isEqualTo(PhotoCompression.NONE)
         assertThat(PhotoRequest.fromMap(emptyMap()).compress).isEqualTo(PhotoCompression.NONE)
-        for (invalid in listOf("heavy", "", "HIGH", 1, false)) {
+        for (invalid in listOf("heavy", "", "HIGH", 1, false, null)) {
             assertThatThrownBy { PhotoRequest.fromMap(mapOf("compress" to invalid)) }
                 .isInstanceOf(IllegalArgumentException::class.java)
+            assertThatThrownBy { PhotoCaptureDefaults.fromMap(mapOf("compress" to invalid)) }
+                .isInstanceOf(IllegalArgumentException::class.java)
         }
+        assertThat(PhotoCaptureDefaults.fromMap(emptyMap()).compress).isNull()
+        for (compression in PhotoCompression.values()) {
+            assertThat(PhotoCaptureDefaults.fromMap(mapOf("compress" to compression.value)).compress).isEqualTo(compression)
+        }
+        // Nullable non-compression fields still follow the existing omission convention.
+        assertThat(PhotoRequest.fromMap(mapOf("authToken" to null)).compress).isEqualTo(PhotoCompression.NONE)
     }
 
     @Test

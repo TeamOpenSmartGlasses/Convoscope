@@ -762,3 +762,10 @@ The former `heavy` spelling is removed; callers must use `high`. Cloud no longer
 converts `low` to `medium`, and Android's native default changes from `medium`
 to `none`. Existing miniapps may therefore produce different JPEG quality or
 payload sizes. There are no compatibility aliases or wire translations.
+
+Photo compression omission is distinct from an explicit `null`: requests default
+omission to `none`, and partial preset updates leave an omitted compression field
+unchanged. A supplied `null` or other invalid value is rejected. Stored presets
+containing removed values are invalid; replace their compression with one of the
+four supported values before replaying the complete preset. There is no automatic
+migration or substitution. Fresh valid preset updates remain available.
