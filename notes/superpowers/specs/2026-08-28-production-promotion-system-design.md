@@ -706,12 +706,11 @@ For Mentra App updates and future Starter Kit updates:
 3. Return to the CLI and request the store-submission transition.
 
 After protected approval, automation verifies that the exact accepted
-version code is the production draft (it was uploaded there in Phase 7), sends
-it for review, reads back the release/version code, and records the review
-state. If a
-human-only Play Console field blocks submission, the workflow links directly to
-it and stops before committing the edit. The README then supplies the exact
-**Review release** and **Send for review** fallback steps.
+version code is the production draft (it was uploaded there in Phase 7) and
+records the draft state. Sending a Play release for review is a Console-only
+action: the operator opens that draft, completes release notes and
+declarations, chooses **Review release**, then **Send for review**, as the
+README describes. `status` later reads back the release state.
 
 The operator waits until Publishing overview shows no changes in review and the
 release is ready to publish. Do not click **Publish changes** until the final
