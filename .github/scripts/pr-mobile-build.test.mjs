@@ -4,6 +4,7 @@ import {mkdtempSync, mkdirSync, writeFileSync, readFileSync} from "node:fs"
 import {tmpdir} from "node:os"
 import path from "node:path"
 import test from "node:test"
+import {runInNewContext} from "node:vm"
 import {candidateAssets, fingerprintMobile, MOBILE_INPUT_PATHS} from "./pr-mobile-build.mjs"
 
 const input = {tree: "mobile tree", env: {EXPO_PUBLIC_BUILD_ENV: "dev"}, tools: {node: "20", java: "17"}}
@@ -83,4 +84,15 @@ test("Android triggers are covered by ASG, and PR binaries are not duplicated as
   assert.match(android, /Upload Release APK \(artifact\)\n        if: github.event_name != 'pull_request'/)
   assert.match(android, /Package this PR's configuration and sign/)
   assert.match(android, /notify-pr-builds:[\s\S]*needs: build/)
+})
+
+test("PR comment updates retain previous APK links with either success label", () => {
+  const workflow = readFileSync(new URL("../workflows/mentra-app-android-build.yml", import.meta.url), "utf8")
+  for (const variable of ["existingShaMatch", "previousShaMatch"]) {
+    const expression = workflow.match(new RegExp(`const ${variable} = comment.body.match\\((/.+/)\\)`))[1]
+    const pattern = runInNewContext(expression)
+    for (const status of ["Ready to test!", "APK published"]) {
+      assert.equal(pattern.exec(`✅ **${status}** (commit \`abcdef0\`)`)[1], "abcdef0")
+    }
+  }
 })

@@ -108,7 +108,7 @@ jobs:
 
             // Check for existing working build link to preserve
             const existingDownloadMatch = comment.body.match(/\[📥 \*\*Download APK\*\*\]\((https:\/\/github\.com[^)]+\.apk)\)/);
-            const existingShaMatch = comment.body.match(/✅ \*\*Ready to test!\*\* \(commit `([a-f0-9]+)`\)/);
+            const existingShaMatch = comment.body.match(/✅ \*\*(?:Ready to test!|APK published)\*\* \(commit `([a-f0-9]+)`\)/);
 
             let buildStatus = `### 📱 Mobile App Build\n⏳ **Building...** (commit \`${sha}\`)`;
 
@@ -599,7 +599,7 @@ jobs:
 
             // Check if there was a previous working build
             const previousDownloadMatch = comment.body.match(/\[📥 \*\*Download APK\*\*\]\((https:\/\/github\.com[^)]+\.apk)\)/);
-            const previousShaMatch = comment.body.match(/✅ \*\*Ready to test!\*\* \(commit `([a-f0-9]+)`\)/)
+            const previousShaMatch = comment.body.match(/✅ \*\*(?:Ready to test!|APK published)\*\* \(commit `([a-f0-9]+)`\)/)
                                   || comment.body.match(/📦 \*\*Previous build:\*\* \(commit `([a-f0-9]+)`\)/);
 
             let buildStatus = `### 📱 Mobile App Build\n❌ **Build failed** (commit \`${sha}\`) - [View logs](${runUrl})`;
