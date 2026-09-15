@@ -1,4 +1,4 @@
-import {command, snapshot, visible, type Command, type Selector, type Snapshot} from "./driver"
+import {command, snapshot, visible, type Command, type Frame, type Selector, type Snapshot} from "./driver"
 import {Report} from "./report"
 
 export interface Check {
@@ -45,6 +45,12 @@ export async function waitFor(checks: Check[], timeoutMs = 10000): Promise<Snaps
 }
 
 export async function executeSteps(steps: Step[], context: Context, report: Report) {
+  const checkSize = (state: Snapshot) => {
+    const initial = report.metadata.window as Frame | undefined
+    if (!initial) report.metadata.window = state.window
+    else if (Math.abs(initial.width - state.window.width) >= 2 || Math.abs(initial.height - state.window.height) >= 2)
+      throw new Error("Window size changed during recording; keep its size fixed or start a new run")
+  }
   let failed = false
   for (const step of steps) {
     if (failed) {
@@ -64,13 +70,14 @@ export async function executeSteps(steps: Step[], context: Context, report: Repo
     try {
       videoStart = await report.video?.mark()
       state = await snapshot()
+      checkSize(state)
       focusBefore = state.frontmostBundleId
       const action = typeof step.action === "function" ? step.action(context, state) : step.action
+      if (action?.op === "relaunch") await report.video?.park()
       if (action) await command(action)
       if (action?.op === "relaunch") await report.video?.reattach()
       state = await waitFor(typeof step.checks === "function" ? step.checks(context) : step.checks, step.timeoutMs)
-      if (focusBefore !== "com.mentra.mentra" && state.frontmostBundleId === "com.mentra.mentra")
-        throw new Error("Mentra became the foreground app during this step; shared-desktop focus was not preserved")
+      checkSize(state)
       const videoEnd = await report.video?.mark()
       const result = await report.record(
         {

@@ -22,7 +22,7 @@ Start on English, signed-in, unpaired home. The routine verifies account identit
 
 Credentials are prompted without echo. For unattended use, inject `MENTRA_E2E_EMAIL` and `MENTRA_E2E_PASSWORD` through an existing secret manager. No credential is committed or passed as a command argument. Omit `--build-manifest` only for TestFlight, where the executable/JS identity is recorded but source provenance may be unknown.
 
-The driver uses no mouse/keyboard injection or foreground activation. Per-step evidence records the foreground app; Mentra taking foreground during a step fails the run. Keep its window open and stationary, and work in another app. Only one harness run can own Mentra at a time.
+The driver uses no mouse/keyboard injection or foreground activation. Per-step evidence records the foreground app. Human focus changes are recorded without attributing them to automation. Keep Mentra open at the same size; window capture follows its position, so you may move it out of the way. Only one harness run can own Mentra at a time.
 
 A failure stops ordinary steps and retains its evidence. Recovery has separate steps and status, uses only recognized screens, and attempts to restore signed-in unpaired home. A successful recovery never turns the failed run into a pass.
 
@@ -93,3 +93,11 @@ bun run test --runInBand --runTestsByPath src/components/home/AppSwitcherButton.
 ```
 
 The native rejection checks, redaction test, mobile type check, four mobile tests, and signed local Release build have passed during development. See the [implementation plan](../../notes/superpowers/plans/2026-09-15-mentra-app-e2e-harness.md) for remaining qualification and known limits. This lane does not qualify physical glasses, Phone Mode, iPhone background operation, or a headless Mac Mini.
+
+For three unattended repetitions with one hidden credential prompt:
+
+```sh
+bun tools/mentra-e2e/qualify.ts --build-manifest mobile/build/ios-mac/build-manifest.json
+```
+
+After an interrupted run, `run --suite restore-unpaired` records recovery from recognized home, authentication-start or onboarding state. It uses the designated credentials and normal navigation; it does not reset storage.

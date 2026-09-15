@@ -93,18 +93,18 @@ extension Driver {
     let windows = content.windows.filter { $0.owningApplication?.processID == app.processIdentifier && $0.windowLayer == 0 && $0.title == "Mentra" }
     guard windows.count == 1 else { throw DriverFailure("Cannot identify a unique Mentra recording window") }
     let target = windows[0]
-    guard let display = content.displays.first(where: { $0.frame.contains(CGPoint(x: target.frame.midX, y: target.frame.midY)) }) else { throw DriverFailure("Target display not found") }
-    // Display stream with an explicit window allowlist survives target relaunch.
-    // Every other window, the desktop and Dock are excluded by this filter.
-    let filter = SCContentFilter(display: display, including: [target])
+    // Window capture follows position/display changes and excludes other apps.
+    // Before relaunch, park on an empty display allowlist so this stream survives
+    // the old window disappearing, then attach the new window to the same MP4.
+    let filter = SCContentFilter(desktopIndependentWindow: target)
     let configuration = SCStreamConfiguration()
-    configuration.sourceRect = target.frame.offsetBy(dx: -display.frame.minX, dy: -display.frame.minY)
     configuration.width = Int(target.frame.width * 2) / 2 * 2
     configuration.height = Int(target.frame.height * 2) / 2 * 2
     configuration.minimumFrameInterval = CMTime(value: 1, timescale: 15)
     configuration.capturesAudio = false
     configuration.captureMicrophone = false
     configuration.showsCursor = false
+    configuration.ignoreShadowsSingleWindow = true
     configuration.includeChildWindows = true
     let observer = RecordingObserver()
     let stream = SCStream(filter: filter, configuration: configuration, delegate: nil)
@@ -132,6 +132,13 @@ extension Driver {
     while let line = await readRecorderLine() {
       if let error = observer.state().2 { throw DriverFailure(error) }
       if line == "stop" { break }
+      if line == "park" {
+        let fresh = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
+        guard let display = fresh.displays.first else { throw DriverFailure("No display available during relaunch") }
+        try await stream.updateContentFilter(SCContentFilter(display: display, including: []))
+        try emitJSON(["event": "parked", "time": timestamp()])
+        continue
+      }
       if line == "mark" { try emitJSON(["event": "mark", "time": timestamp()]); continue }
       if line.hasPrefix("{") {
         guard let request = try JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: String],
@@ -153,13 +160,12 @@ extension Driver {
           let matches = fresh.windows.filter { $0.owningApplication?.bundleIdentifier == bundleID && $0.title == "Mentra" && $0.windowLayer == 0 }
           if matches.count == 1 {
             let candidate = matches[0]
-            if abs(candidate.frame.minX - target.frame.minX) < 2, abs(candidate.frame.minY - target.frame.minY) < 2,
-               abs(candidate.frame.width - target.frame.width) < 2, abs(candidate.frame.height - target.frame.height) < 2 { restoredWindow = candidate }
+            if abs(candidate.frame.width - target.frame.width) < 2, abs(candidate.frame.height - target.frame.height) < 2 { restoredWindow = candidate }
           }
           if restoredWindow == nil { try await Task.sleep(for: .milliseconds(100)) }
         }
-        guard let newWindow = restoredWindow else { throw DriverFailure("Window geometry changed during recording; restore the initial window bounds") }
-        try await stream.updateContentFilter(SCContentFilter(display: display, including: [newWindow]))
+        guard let newWindow = restoredWindow else { throw DriverFailure("Window size changed during recording; restore the initial size") }
+        try await stream.updateContentFilter(SCContentFilter(desktopIndependentWindow: newWindow))
         try emitJSON(["event": "reattached", "time": timestamp()])
       }
     }

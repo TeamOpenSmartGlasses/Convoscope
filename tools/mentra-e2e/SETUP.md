@@ -8,7 +8,7 @@ This guide provisions the standalone harness and the optional local app build. R
 2. Install macOS compatible with the TestFlight app. Match the qualified machine's macOS version when reproducing a failure. The native recorder requires macOS 15 or newer; the initial host is macOS 26.6.2. Older OS versions have not been qualified.
 3. Install Apple's command line tools, or Xcode with its command line tools selected. The helper uses Swift 6 and the macOS SDK's AppKit, ApplicationServices, CoreImage and ScreenCaptureKit. It does not build the Mentra App.
 4. Install Bun from its official distribution. Initial development uses Bun **1.4.0** and Swift **6.4**. Keep the actual versions in the run evidence; changing versions requires rerunning the driver proof.
-5. Keep the Mac awake, unlocked, and available during runs. Other people may work in other apps. The driver uses accessibility actions without activating Mentra or moving the pointer. Do not move, resize, minimize or close the target window during a video run.
+5. Keep the Mac awake, unlocked, and available during runs. Other people may work in other apps. The driver uses accessibility actions without activating Mentra or moving the pointer. You may move the window; keep its size fixed and do not minimize or close it during a run.
 
 Verify the tools:
 
@@ -177,7 +177,7 @@ Do not clear app storage, reset Keychain, or overwrite deployment/server setting
 ## 8. Operate and troubleshoot
 
 - Run one harness at a time. A per-user lock prevents two checkouts from driving the same app concurrently.
-- Keep the app window on the same display and at the same size/position for a video run. The recorder rejects an unexpected geometry change; it does not silently capture a different screen area.
+- Keep the app window at the same size during a run. Capture targets the window independently of its desktop position. Before a normal relaunch, the recorder switches temporarily to an empty window allowlist; it then attaches the new Mentra window to the same video. Other applications stay excluded.
 - An assertion failure produces a nonzero exit and preserves the video, screenshots, accessibility snapshots, expected result, and timing. Inspect the failing step before rerunning.
 - A recording failure makes the run incomplete even if some UI assertions passed.
 - Runs go to `.test-results/mentra-e2e/<timestamp>-<suite>-<suffix>/`. Keep failed runs alongside successful runs while debugging. No automatic artifact upload occurs.
@@ -188,7 +188,7 @@ Before accepting the Mac Mini as a test station, run the qualified no-glasses su
 
 ## 9. Run the complete routine
 
-Start on English, signed-in, unpaired home, using the designated test account. Keep another app in front when verifying shared-desktop operation. The routine checks and records the foreground application before/after each step; Mentra taking foreground during a step fails the run. A person clicking Mentra during the run can also trigger that check.
+Start on English, signed-in, unpaired home, using the designated test account. Keep another app in front when verifying shared-desktop operation. The routine records the foreground application before/after each step. Since a person may click or move Mentra, a focus change is evidence rather than an automatic claim that the harness stole focus.
 
 ```sh
 # From the repository root; credentials are prompted without echo.

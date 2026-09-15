@@ -53,12 +53,13 @@ try {
       "lifecycle-proof": lifecycleProof,
       "no-glasses": noGlasses,
       "failure-proof": failureProof,
+      "restore-unpaired": [],
     }
     const steps = suites[values.suite as keyof typeof suites]
     if (!steps) throw new Error(`Suite is not implemented: ${values.suite}`)
-    if (["no-glasses", "failure-proof"].includes(values.suite!) && values.fixture !== "unpaired")
+    if (["no-glasses", "failure-proof", "restore-unpaired"].includes(values.suite!) && values.fixture !== "unpaired")
       throw new Error("The no-glasses suite requires the declared unpaired fixture")
-    const account = ["login", "no-glasses", "failure-proof"].includes(values.suite!)
+    const account = ["login", "no-glasses", "failure-proof", "restore-unpaired"].includes(values.suite!)
       ? await credentials()
       : {email: "", password: ""}
     const release = await acquireLock()
@@ -69,7 +70,11 @@ try {
       if (!doctor.accessibility || !doctor.screenCapture)
         throw new Error("macOS Accessibility and Screen Recording permissions are required; run doctor")
       await report.startVideo()
-      const passed = await executeSteps(steps, {...account, fixture: values.fixture!}, report)
+      const context = {...account, fixture: values.fixture!}
+      const passed =
+        values.suite === "restore-unpaired"
+          ? await recoverUnpaired(context, report)
+          : await executeSteps(steps, context, report)
       let recovery: boolean | undefined
       if (
         !passed &&

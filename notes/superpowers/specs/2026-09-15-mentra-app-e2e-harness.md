@@ -89,7 +89,7 @@ Require a working accessibility press action. A control without one fails with a
 
 A standalone process needs its own working macOS Accessibility and screen-capture permissions. The existing computer-control tool's access does not establish that access for a new executable. Include an explicit permission preflight and a stable driver installation/signing identity. Report missing permission as setup failure before clicking anything; do not change system permission settings silently.
 
-The Mac must be awake and unlocked with the Mentra window open. Only one run owns that window at a time. The user may work in other apps: AX actions do not move the pointer or activate Mentra. Do not move, resize, minimize or close the target during a recording. Relaunch uses `activates = false`; an isolated lifecycle probe now passes on dev.235 with capture reattachment and Codex retaining desktop focus. Both relaunches also passed in the complete local-build routine. A dedicated Mac Mini remains the simplest permanent test station.
+The Mac must be awake and unlocked with the Mentra window open. Only one run owns that window at a time. The user may work in other apps: AX actions do not move the pointer or activate Mentra. You may move the window during recording. Keep its size fixed; do not minimize or close it. Relaunch uses `activates = false`; an isolated lifecycle probe now passes on dev.235 with capture reattachment and Codex retaining desktop focus. Both relaunches also passed in the complete local-build routine. A dedicated Mac Mini remains the simplest permanent test station.
 
 ## Why this choice, and when to change it
 

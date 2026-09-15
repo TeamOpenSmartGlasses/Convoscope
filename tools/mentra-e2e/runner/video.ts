@@ -79,6 +79,10 @@ export class Video {
     ;(this.process.stdin as {write: (text: string) => unknown}).write("reattach\n")
     await this.next("reattached")
   }
+  async park() {
+    ;(this.process.stdin as {write: (text: string) => unknown}).write("park\n")
+    await this.next("parked")
+  }
   async screenshot(path: string) {
     ;(this.process.stdin as {write: (text: string) => unknown}).write(`${JSON.stringify({op: "screenshot", path})}\n`)
     return (await this.next("screenshot")) as VideoEvent & {

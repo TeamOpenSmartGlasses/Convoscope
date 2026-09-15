@@ -33,7 +33,7 @@ func relaunchURL(for app: NSRunningApplication) throws -> URL {
       }
     }
   }
-  return runningURL
+  throw DriverFailure("No registered outer app wrapper matches the running executable and JavaScript; launch the intended build through bun ios:mac or TestFlight first")
 }
 
 func attribute(_ element: AXUIElement, _ name: String) -> CFTypeRef? {
@@ -151,18 +151,25 @@ final class Driver {
     return result
   }
 
-  func find(_ selector: [String: Any]) throws -> Element {
+  func find(_ selector: [String: Any]) async throws -> Element {
     try validateSelector(selector)
     let names = ["identifier", "title", "description", "placeholder", "text", "contains"]
     guard names.contains(where: { !(selector[$0] as? String ?? "").isEmpty }) else {
       throw DriverFailure("A named accessibility target is required; anonymous or position-based targets are unsupported")
     }
-    let found = try elements().filter { element in
-      matches(element.data, selector) && (selector["visible"] as? Bool == false || element.data["visible"] as? Bool == true)
-        && ((selector["ancestor"] as? [String: Any]).map { ancestor in element.ancestors.contains { matches($0, ancestor) } } ?? true)
-    }
-    guard found.count == 1 else { throw DriverFailure("Selector matched \(found.count) elements; expected exactly one") }
-    return found[0]
+    let deadline = Date().addingTimeInterval(3)
+    var count = 0
+    repeat {
+      let found = try elements().filter { element in
+        matches(element.data, selector) && (selector["visible"] as? Bool == false || element.data["visible"] as? Bool == true)
+          && ((selector["ancestor"] as? [String: Any]).map { ancestor in element.ancestors.contains { matches($0, ancestor) } } ?? true)
+      }
+      count = found.count
+      if count == 1 { return found[0] }
+      // Retry only observation during layout/window movement, never the action.
+      try await Task.sleep(for: .milliseconds(100))
+    } while Date() < deadline
+    throw DriverFailure("Selector matched \(count) elements; expected exactly one within three seconds")
   }
 
   func capture(_ path: String) async throws -> [String: Any] {
@@ -237,7 +244,7 @@ final class Driver {
       }
       return ["pid": reopened.processIdentifier]
     case "press":
-      let target = try find(selector)
+      let target = try await find(selector)
       let actions = target.data["actions"] as? [String] ?? []
       guard actions.contains(kAXPressAction) else {
         throw DriverFailure("AXPress is not exposed. Fix this control's accessibility in the Mentra App and install the rebuilt app; coordinate fallback is unsupported")
@@ -250,7 +257,7 @@ final class Driver {
       guard let action = command["action"] as? String, allowed.contains(action) else {
         throw DriverFailure("Unsupported accessibility action; only semantic scrolling is available here")
       }
-      let target = try find(selector)
+      let target = try await find(selector)
       guard (target.data["actions"] as? [String] ?? []).contains(action) else {
         throw DriverFailure("Requested accessibility action is not exposed by the target")
       }
@@ -258,7 +265,7 @@ final class Driver {
       guard result == .success else { throw DriverFailure("Accessibility action failed: \(result.rawValue)") }
       return ["method": action]
     case "type":
-      let target = try find(selector)
+      let target = try await find(selector)
       guard target.data["role"] as? String == kAXTextFieldRole || target.data["role"] as? String == kAXTextAreaRole else { throw DriverFailure("Text target is not an editable field") }
       guard let text = command["text"] as? String else { throw DriverFailure("Text entry requires a string") }
       let result = AXUIElementSetAttributeValue(target.ax, kAXValueAttribute as CFString, text as CFString)
