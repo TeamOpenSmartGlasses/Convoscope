@@ -177,6 +177,22 @@ describe("virtual vs physical LAN regression cases (PR #4048)", () => {
       },
       expected: "192.168.1.100",
     },
+    {
+      name: "Order A: vmnet1 (192.168.56.1/24) listed before eno1 (203.0.113.42/25) -> must select eno1",
+      interfaces: {
+        vmnet1: [iface({name: "vmnet1", address: "192.168.56.1", netmask: "255.255.255.0"})],
+        eno1: [iface({name: "eno1", address: "203.0.113.42", netmask: "255.255.255.128"})],
+      },
+      expected: "203.0.113.42",
+    },
+    {
+      name: "Order B: eno1 (203.0.113.42/25) listed before vmnet1 (192.168.56.1/24) -> must select eno1",
+      interfaces: {
+        eno1: [iface({name: "eno1", address: "203.0.113.42", netmask: "255.255.255.128"})],
+        vmnet1: [iface({name: "vmnet1", address: "192.168.56.1", netmask: "255.255.255.0"})],
+      },
+      expected: "203.0.113.42",
+    },
   ]
 
   for (const tc of regressionCases) {

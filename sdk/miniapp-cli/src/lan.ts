@@ -143,13 +143,19 @@ export function scoreLanIface(iface: LanIface): number {
   else if (specificity > 24) score += 10
   else if (specificity > 0 && specificity < 16) score -= 20
 
-  // Heavily penalize virtual adapter names and CGNAT addresses
+  if (!isVirtual && !isCgnatAddr) {
+    // Primary tier: all non-virtual, non-CGNAT candidates are offset by +1000
+    // so physical scores are always >= 1000.
+    score += 1000
+    return Math.max(1000, score)
+  }
+
+  // Fallback tier: virtual adapter names and CGNAT addresses
   if (isVirtual) score -= 100
   if (isCgnatAddr) score -= 50
 
-  // Keep virtual/CGNAT as a last-resort fallback so getLanIp() still returns
-  // an IP (score >= 1) rather than null if no physical LAN is found.
-  return Math.max(1, score)
+  // Clamped between 1 and 100 so virtual/CGNAT acts as last-resort fallback.
+  return Math.min(100, Math.max(1, score))
 }
 
 /**
