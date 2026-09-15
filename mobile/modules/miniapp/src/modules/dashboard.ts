@@ -1,9 +1,9 @@
 /**
  * @fileoverview DashboardAPI — noop surface in v1.
  *
- * The cloud DashboardManager owns widget rendering in OS-ranked
- * rotation. Keeping the API shape so miniapps compile, but calls are
- * noop + console.warn.
+ * Dashboard rendering is not implemented by the local miniapp runtime.
+ * The API shape is retained, but calls only warn once and forward a request
+ * that the host rejects as NOT_IMPLEMENTED.
  */
 
 import {MiniappRequestType} from "../protocol"

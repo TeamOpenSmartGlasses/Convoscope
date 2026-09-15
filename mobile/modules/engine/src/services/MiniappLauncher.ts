@@ -317,12 +317,9 @@ class MiniappLauncher {
   /**
    * Re-spawn local miniapps that were running when the app was last killed.
    *
-   * Cloud apps run on a remote server: the cloud persists which ones are
-   * running and resurrects them when the phone reconnects, so a host-app
-   * restart brings them back on its own. Local (phone-hosted) miniapps run in
-   * the phone's own JS engine — a host-process kill tears down their JSContext
-   * and there is no server to resurrect them, so without this they silently
-   * stay stopped on the next launch even though the user left them running.
+   * Every miniapp runs as local JavaScript in the Mentra App on the phone.
+   * A host-process kill tears down its JSContext, so without this restoration
+   * it stays stopped on the next launch even though the user left it running.
    *
    * Each local miniapp persists its running flag to disk on start/stop
    * (`saveLocalAppRunningState`, via the applet's `onStart`/`onStop`). We read

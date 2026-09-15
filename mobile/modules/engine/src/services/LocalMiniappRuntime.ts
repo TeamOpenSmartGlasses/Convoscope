@@ -760,11 +760,11 @@ class LocalMiniappRuntime {
   }
 
   /**
-   * Handle an incoming cloud message forwarded by SocketComms
-   * (phone_stream_status, phone_managed_stream_status).
+   * Legacy Cloud V1 stream-response handler retained after SocketComms removal.
+   * Current miniapp streams use PhoneStreamCoordinator; this handler has no
+   * callers in the current mobile source.
    *
-   * Routes the response back to the originating miniapp via the requestId
-   * that was stored when the miniapp first made the request.
+   * Looks up the originating miniapp through a previously registered requestId.
    */
   public handleCloudMessage(msg: any): void {
     const requestId = msg.requestId as string | undefined
@@ -837,7 +837,7 @@ class LocalMiniappRuntime {
   }
 
   /**
-   * Register a pending cloud request so we can route the response back.
+   * Legacy registration for handleCloudMessage; unused by current miniapp streams.
    */
   public registerPendingCloudRequest(requestId: string, packageName: string, envelopeRequestId?: string): void {
     this.pendingCloudRequests.set(requestId, {packageName, envelopeRequestId})
@@ -3610,8 +3610,8 @@ class LocalMiniappRuntime {
   /**
    * Stream handlers — dispatched to the engine PhoneStreamCoordinator. For managed
    * streams the coordinator additionally calls the v2 client REST route to
-   * provision Cloudflare. Cloud-SDK apps (third-party developers) use a
-   * separate cloud-side path that does not pass through here.
+   * provision Cloudflare. Miniapp JavaScript runs locally in the Mentra App;
+   * the cloud service only provisions the managed stream resources.
    */
   private async handleStreamStart(
     packageName: string,
@@ -5128,11 +5128,11 @@ class LocalMiniappRuntime {
    * Forward a streamed event to all miniapps subscribed to the given stream.
    *
    * Event name translation:
-   * - Cloud sends "head_up" → miniapp protocol uses "head_position" (HEAD_POSITION)
-   * - Cloud sends "VAD" (uppercase) → miniapp protocol uses "vad" (lowercase)
+   * - Incoming "head_up" → miniapp protocol uses "head_position" (HEAD_POSITION)
+   * - Incoming "VAD" (uppercase) → miniapp protocol uses "vad" (lowercase)
    */
   public forwardEvent(streamType: string, data: unknown, transcriptionSource?: TranscriptionEventSource): void {
-    // Translate cloud event names to miniapp protocol stream types
+    // Normalize incoming event names to miniapp protocol stream types
     const normalizedStream = this.normalizeStreamType(streamType)
 
     // Collect all subscribers: exact match, plus wildcard matches for streams
@@ -5291,10 +5291,10 @@ class LocalMiniappRuntime {
   }
 
   /**
-   * Translate cloud event names to miniapp stream type values.
+   * Normalize incoming event names to miniapp stream type values.
    */
   private normalizeStreamType(cloudEventName: string): string {
-    // Cloud / Bluetooth SDK → miniapp protocol translations.
+    // Incoming event names → miniapp protocol translations.
     // Bluetooth SDK event names don't always match the miniapp wire values.
     switch (cloudEventName) {
       case "head_up":

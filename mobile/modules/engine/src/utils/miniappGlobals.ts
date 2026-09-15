@@ -1,11 +1,9 @@
 /**
  * miniappGlobals — shared builder for the window.MentraOS globals injected
- * into every miniapp WebView (both cloud and local).
+ * into miniapp WebViews in the Mentra App on the phone.
  *
- * Authors should be able to use one API in their miniapp code regardless of
- * whether it's hosted in the cloud or on-device. So both injection paths
- * (webview.tsx for cloud miniapps, MiniappHost.tsx for local miniapps) funnel
- * through this util.
+ * Miniapps run locally. This util gives their WebView UI a consistent API
+ * for host capabilities, safe-area insets, and capsule-menu geometry.
  */
 
 import {Dimensions, Platform} from "react-native"

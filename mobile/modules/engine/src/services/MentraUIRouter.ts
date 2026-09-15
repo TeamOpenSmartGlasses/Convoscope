@@ -52,9 +52,9 @@ interface BoundWebView {
 /**
  * NOTE: the WebView ↔ host heartbeat was removed when the lifecycle
  * inversion landed. The current model is **at most one WebView at a
- * time, foreground UI with an always-on background JSContext** (same
- * shape as the cloud-WebView miniapps). User navigation closes it
- * explicitly and `onContentProcessDidTerminate` catches OS-level
+ * time, foreground UI with an always-on background JSContext on the phone**.
+ * User navigation closes it explicitly and `onContentProcessDidTerminate`
+ * catches OS-level
  * crashes, but the host may still re-announce UI_OPEN for an already
  * mounted WebView after app resume/dev respawn so the background can
  * push a fresh authoritative snapshot.
