@@ -127,6 +127,10 @@ jobs:
           java-version: "17"
 
       - uses: android-actions/setup-android@v3
+        with:
+          # The action's default list includes the retired `tools` package,
+          # which no longer downloads; Gradle fetches the rest it needs.
+          packages: platform-tools
         if: steps.existing.outputs.exists != 'true'
 
       - name: Install the example Android toolchain
