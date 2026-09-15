@@ -3515,10 +3515,10 @@ class LocalMiniappRuntime {
   }
 
   /**
-   * Stream handlers — dispatched to the engine PhoneStreamCoordinator. For managed
-   * streams the coordinator additionally calls the v2 client REST route to
-   * provision Cloudflare. Miniapp JavaScript runs locally in the Mentra App;
-   * the cloud service only provisions the managed stream resources.
+   * Stream handlers — dispatched to PhoneStreamCoordinator on the phone.
+   * Managed streams also use Cloud V2 REST calls to provision resources,
+   * poll ingest status, and tear down the managed stream. Miniapp JavaScript
+   * runs locally in the Mentra App.
    */
   private async handleStreamStart(
     packageName: string,

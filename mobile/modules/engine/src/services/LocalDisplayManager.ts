@@ -86,8 +86,8 @@ interface BackgroundLock {
 
 const LOG_TAG = "LOCAL_DISPLAY"
 const BOOT_DURATION_MS = 1500
-// A background app has to keep driving the display to hold the lock; if it
-// goes quiet and the core app wants the screen, we release.
+// Background renders renew this lease. An expired lock is dropped when the
+// next display request is arbitrated, allowing another app to take the screen.
 const BACKGROUND_LOCK_TIMEOUT_MS = 10_000
 // Sentinel package name used as the "source" of the system boot message.
 const SYSTEM_BOOT_PKG = "system.boot"

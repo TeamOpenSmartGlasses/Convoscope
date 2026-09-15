@@ -1,8 +1,8 @@
 /**
  * Phone location service — engine-owned. Owns the background phone-GPS task: the
  * accuracy-tier control (`setLocationTier`), the accuracy mapping, and the
- * `expo-task-manager` background task that fans each fix out to local miniapps
- * (`location_update`). Cloud upload was V1 (removed).
+ * `expo-task-manager` background task that forwards the first fix in each batch
+ * to subscribed local miniapps (`location_update`). Cloud upload was V1 (removed).
  *
  * This used to be the host-injected `locationTier` runtime hook + a MantleManager
  * `TaskManager.defineTask`. It's device/OS plumbing (no UI), so it moved into engine:
@@ -21,7 +21,7 @@ import localMiniappRuntime from "./LocalMiniappRuntime"
 
 export const LOCATION_TASK_NAME = "handleLocationUpdates"
 
-// Background location task — sends each fix directly to local miniapps.
+// Background location task — forwards the first fix from each non-empty batch.
 TaskManager.defineTask<{locations?: Location.LocationObject[]}>(LOCATION_TASK_NAME, async ({data, error}) => {
   if (error) {
     // OS-level failure (permission revoked, GPS unavailable, …) — log it so

@@ -1,9 +1,9 @@
 /**
- * @fileoverview DashboardAPI — noop surface in v1.
+ * @fileoverview DashboardAPI — deferred dashboard rendering surface.
  *
- * Dashboard rendering is not implemented by the local miniapp runtime.
- * The API shape is retained, but calls only warn once and forward a request
- * that the host rejects as NOT_IMPLEMENTED.
+ * setContent warns once per instance and sends a fire-and-forget message.
+ * The local runtime does not render it or reply because it has no request ID.
+ * Requests with an ID receive NOT_IMPLEMENTED from the runtime.
  */
 
 import {MiniappRequestType} from "../protocol"
@@ -21,7 +21,7 @@ export class DashboardAPI {
       console.warn("[@mentra/miniapp] dashboard.setContent() is deferred in v1.")
       this.warned = true
     }
-    // Still forward so the phone can log/ignore consistently.
+    // No request ID: the runtime ignores this update without sending a result.
     this.session.sendOneShot({
       type: MiniappRequestType.DASHBOARD_CONTENT_UPDATE,
       mode,
