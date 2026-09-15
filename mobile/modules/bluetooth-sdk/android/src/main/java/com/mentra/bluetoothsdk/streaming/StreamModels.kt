@@ -248,6 +248,7 @@ data class StreamRequest @JvmOverloads constructor(
      * joined despite unsynchronised clocks.
      */
     val traceId: String? = null,
+    val telemetry: Boolean? = null,
 ) {
     fun toMap(): Map<String, Any> =
         buildMap {
@@ -261,6 +262,7 @@ data class StreamRequest @JvmOverloads constructor(
             if (!captureAudio) put("captureAudio", false)
             ice?.toMap()?.takeIf { it.isNotEmpty() }?.let { put("ice", it) }
             traceId?.takeIf { it.isNotEmpty() }?.let { put("traceId", it) }
+            telemetry?.let { put("telemetry", it) }
         }
 
     companion object {
@@ -278,6 +280,7 @@ data class StreamRequest @JvmOverloads constructor(
                 captureAudio = boolValue(values, "captureAudio") ?: boolValue(values, "ca") ?: true,
                 ice = StreamIceConfig.fromMap(stringMapValue(values["ice"] ?: values["i"])),
                 traceId = stringValue(values, "traceId"),
+                telemetry = (values["telemetry"] as? Boolean) ?: (values["tl"] as? Boolean),
             )
     }
 }
