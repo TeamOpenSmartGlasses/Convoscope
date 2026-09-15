@@ -34,7 +34,8 @@ const SKIP_NAME_PREFIXES = [
 ]
 
 /** Virtual / overlay adapter names to demote to last-resort fallback. */
-const VIRTUAL_NAME_REGEX = /vEthernet|WSL|Hyper-V|VirtualBox|VMware|Tailscale|ZeroTier|docker/i
+const VIRTUAL_NAME_REGEX =
+  /vEthernet|WSL|Hyper-V|VirtualBox|VMware|Tailscale|ZeroTier|docker|^vmnet|^veth|^zt/i
 
 /** RFC 6598 Carrier Grade NAT (CGNAT) address space (100.64.0.0/10), used by Tailscale. */
 const CGNAT_REGEX = /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./
@@ -121,17 +122,19 @@ export function scoreLanIface(iface: LanIface): number {
     score += 10 // other public / unusual — last resort
   }
 
-  if (isPreferredName(iface.name)) {
-    score += 40
-  } else if (
-    /^en\d+$/i.test(iface.name) ||
-    /^eth\d+$/i.test(iface.name) ||
-    /^wlan\d+$/i.test(iface.name) ||
-    // Predictable NetworkManager names on modern Linux (wlp3s0, enp0s3, …).
-    /^wlp\w+/i.test(iface.name) ||
-    /^enp\w+/i.test(iface.name)
-  ) {
-    score += 25
+  if (!isVirtual) {
+    if (isPreferredName(iface.name)) {
+      score += 40
+    } else if (
+      /^en\d+$/i.test(iface.name) ||
+      /^eth\d+$/i.test(iface.name) ||
+      /^wlan\d+$/i.test(iface.name) ||
+      // Predictable NetworkManager names on modern Linux (wlp3s0, enp0s3, …).
+      /^wlp\w+/i.test(iface.name) ||
+      /^enp\w+/i.test(iface.name)
+    ) {
+      score += 25
+    }
   }
 
   const specificity = netmaskSpecificity(iface.netmask)

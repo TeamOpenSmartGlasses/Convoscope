@@ -136,3 +136,67 @@ describe("getLanIp with mocked os.networkInterfaces", () => {
     expect(getLanIp()).toBeNull()
   })
 })
+
+describe("virtual vs physical LAN regression cases (PR #4048)", () => {
+  let originalNetworkInterfaces: typeof os.networkInterfaces
+
+  function mockInterfaces(map: NodeJS.Dict<LanIface[] | undefined>) {
+    ;(os as {networkInterfaces: () => typeof map}).networkInterfaces = () => map
+  }
+
+  beforeEach(() => {
+    originalNetworkInterfaces = os.networkInterfaces
+  })
+
+  afterEach(() => {
+    ;(os as {networkInterfaces: typeof originalNetworkInterfaces}).networkInterfaces = originalNetworkInterfaces
+  })
+
+  const regressionCases = [
+    {
+      name: "vmnet1 (192.168.56.1) vs enp0s3 (172.20.1.10) -> must select enp0s3 (172.20.1.10)",
+      interfaces: {
+        vmnet1: [iface({name: "vmnet1", address: "192.168.56.1", netmask: "255.255.255.0"})],
+        enp0s3: [iface({name: "enp0s3", address: "172.20.1.10", netmask: "255.255.255.0"})],
+      },
+      expected: "172.20.1.10",
+    },
+    {
+      name: "veth1234 (192.168.1.50) vs physical eth0 (10.0.0.5) -> must select eth0 (10.0.0.5)",
+      interfaces: {
+        veth1234: [iface({name: "veth1234", address: "192.168.1.50", netmask: "255.255.255.0"})],
+        eth0: [iface({name: "eth0", address: "10.0.0.5", netmask: "255.255.255.0"})],
+      },
+      expected: "10.0.0.5",
+    },
+    {
+      name: "ztabcdef (192.168.192.1) vs physical Wi-Fi -> must select physical Wi-Fi",
+      interfaces: {
+        ztabcdef: [iface({name: "ztabcdef", address: "192.168.192.1", netmask: "255.255.255.0"})],
+        "Wi-Fi": [iface({name: "Wi-Fi", address: "192.168.1.100", netmask: "255.255.255.0"})],
+      },
+      expected: "192.168.1.100",
+    },
+  ]
+
+  for (const tc of regressionCases) {
+    test(tc.name, () => {
+      mockInterfaces(tc.interfaces)
+      expect(getLanIp()).toBe(tc.expected)
+    })
+  }
+
+  test("when only vmnet1 is present -> returns vmnet1 as fallback", () => {
+    mockInterfaces({
+      vmnet1: [iface({name: "vmnet1", address: "192.168.56.1", netmask: "255.255.255.0"})],
+    })
+    expect(getLanIp()).toBe("192.168.56.1")
+  })
+
+  test("when only tailscale0 is present -> returns tailscale0 as fallback", () => {
+    mockInterfaces({
+      tailscale0: [iface({name: "tailscale0", address: "100.64.1.2", netmask: "255.255.255.255"})],
+    })
+    expect(getLanIp()).toBe("100.64.1.2")
+  })
+})
