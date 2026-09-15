@@ -707,6 +707,8 @@ export type WarmUpCameraParams = {
   mfnr?: boolean
 }
 
+export type StreamDegradationPreference = "MAINTAIN_FRAMERATE" | "MAINTAIN_RESOLUTION" | "BALANCED" | "DISABLED"
+
 export type StreamVideoConfig = {
   width?: number
   height?: number
@@ -716,6 +718,8 @@ export type StreamVideoConfig = {
   /** WHIP startup bitrate in bps, clamped to the requested bounds. */
   initialBitrateBps?: number
   fps?: number
+  /** WHIP adaptation policy. Omit to keep the glasses' MAINTAIN_FRAMERATE default. */
+  degradationPreference?: StreamDegradationPreference
 }
 
 export type StreamAudioConfig = {
@@ -876,6 +880,8 @@ export type StreamResolvedConfig = {
     bitrate: number
     /** Resolved capture/encode frame rate. */
     fps: number
+    /** Applied WHIP adaptation policy; absent on older firmware and other transports. */
+    degradationPreference?: StreamDegradationPreference
   }
   audio?: {
     /** Encoded audio bitrate in bits per second. */

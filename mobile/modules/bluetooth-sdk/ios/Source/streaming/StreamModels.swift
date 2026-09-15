@@ -7,6 +7,8 @@ public struct StreamVideoConfig {
     public let minBitrateBps: Int?
     public let initialBitrateBps: Int?
     public let fps: Int?
+    /// WHIP adaptation policy; nil preserves the glasses' MAINTAIN_FRAMERATE default.
+    public let degradationPreference: String?
 
     public init(
         width: Int? = nil,
@@ -14,7 +16,8 @@ public struct StreamVideoConfig {
         bitrate: Int? = nil,
         fps: Int? = nil,
         minBitrateBps: Int? = nil,
-        initialBitrateBps: Int? = nil
+        initialBitrateBps: Int? = nil,
+        degradationPreference: String? = nil
     ) {
         self.width = width
         self.height = height
@@ -22,6 +25,7 @@ public struct StreamVideoConfig {
         self.minBitrateBps = minBitrateBps
         self.initialBitrateBps = initialBitrateBps
         self.fps = fps
+        self.degradationPreference = degradationPreference
     }
 
     var dictionary: [String: Any] {
@@ -31,6 +35,7 @@ public struct StreamVideoConfig {
         if let bitrate { values["bitrate"] = bitrate }
         if let minBitrateBps { values["minBitrateBps"] = minBitrateBps }
         if let initialBitrateBps { values["initialBitrateBps"] = initialBitrateBps }
+        if let degradationPreference { values["degradationPreference"] = degradationPreference }
         // ASG stream parsers shipped with the BLE key named "frameRate".
         if let fps { values["frameRate"] = fps }
         return values
@@ -44,7 +49,8 @@ public struct StreamVideoConfig {
             bitrate: intValue(values["bitrate"]),
             fps: intValue(values["fps"]),
             minBitrateBps: intValue(values["minBitrateBps"]),
-            initialBitrateBps: intValue(values["initialBitrateBps"])
+            initialBitrateBps: intValue(values["initialBitrateBps"]),
+            degradationPreference: stringValue(values, "degradationPreference", "dp")
         )
     }
 }
@@ -129,6 +135,8 @@ public struct StreamResolvedVideoConfig: Equatable {
     public let bitrate: Int
     /// Resolved capture/encode frame rate.
     public let fps: Double
+    /// Applied WHIP adaptation policy; absent on older firmware and other transports.
+    public let degradationPreference: String?
 
     public init(
         width: Int,
@@ -136,7 +144,8 @@ public struct StreamResolvedVideoConfig: Equatable {
         captureWidth: Int? = nil,
         captureHeight: Int? = nil,
         bitrate: Int,
-        fps: Double
+        fps: Double,
+        degradationPreference: String? = nil
     ) {
         self.width = width
         self.height = height
@@ -144,6 +153,7 @@ public struct StreamResolvedVideoConfig: Equatable {
         self.captureHeight = captureHeight
         self.bitrate = bitrate
         self.fps = fps
+        self.degradationPreference = degradationPreference
     }
 
     init?(values: [String: Any]?) {
@@ -161,7 +171,8 @@ public struct StreamResolvedVideoConfig: Equatable {
             captureWidth: intValue(values["captureWidth"]),
             captureHeight: intValue(values["captureHeight"]),
             bitrate: bitrate,
-            fps: fps
+            fps: fps,
+            degradationPreference: stringValue(values, "degradationPreference", "dp")
         )
     }
 
@@ -174,6 +185,7 @@ public struct StreamResolvedVideoConfig: Equatable {
         ]
         if let captureWidth { values["captureWidth"] = captureWidth }
         if let captureHeight { values["captureHeight"] = captureHeight }
+        if let degradationPreference { values["degradationPreference"] = degradationPreference }
         return values
     }
 }

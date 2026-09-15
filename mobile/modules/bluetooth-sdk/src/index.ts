@@ -298,6 +298,7 @@ export type {
   SettingsAckSuccessStatus,
   SettingsAckStatus,
   StreamAudioConfig,
+  StreamDegradationPreference,
   StreamResolvedConfig,
   StreamStartRequest,
   StreamStatusEvent,
