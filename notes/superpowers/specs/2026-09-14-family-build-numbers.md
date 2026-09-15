@@ -37,7 +37,9 @@ number`, above their families' windows; Android testers on those builds
 Every new family prefix starts again at 1. A coordinated run (dev or beta)
 allocates **one sequence per run** from the family's build container
 (`mentra-builds-vX.Y.Z`): the next free number above every
-`mentra-build-number-<code>.json` marker recorded there. The marker names its
+`mentra-build-number-<code>.json` marker recorded there and above every ASG
+client pair `mentra-live-asg-<code>-<fingerprint>` of the family in the shared
+ASG release (numbers taken before markers existed). The marker names its
 owner (`coordinated-run:<run id>`, `promotion:<promotion id>:candidate`,
 `promotion:<promotion id>:compatibility-lab`, `example:<release set>`), and is
 published right after the container exists and before any build starts:

@@ -150,9 +150,16 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p example-input/family
+          # ASG pairs numbered before markers existed live in the shared ASG
+          # release; their numbers are taken too.
+          asg_assets='[]'
+          if asg_release_id=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/mentra-coordinated-asg" --jq .id 2>/dev/null); then
+            asg_assets=$(gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/releases/$asg_release_id/assets?per_page=100" | jq 'add // []')
+          fi
+          printf '%s\n' "$asg_assets" > example-input/family/asg-assets.json
           release_id=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/$BETA_TAG" --jq .id)
           gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/releases/$release_id/assets?per_page=100" \
-            | jq 'add // []' > example-input/family/assets.json
+            | jq 'add // []' | jq -s 'add' - example-input/family/asg-assets.json > example-input/family/assets.json
           # Markers above the beta are downloaded so a retry finds the number
           # this example release already reserved.
           mkdir -p example-input/family/markers

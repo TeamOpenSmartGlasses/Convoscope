@@ -146,7 +146,17 @@ jobs:
             release_id=$(jq -er .id <<< "$release")
             assets=$(gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/releases/$release_id/assets?per_page=100" | jq 'add // []')
           fi
-          printf '%s\n' "$assets" > family-container-assets.json
+          printf '%s\n' "$assets" > family-only-assets.json
+          # ASG pairs numbered before markers existed live in the shared ASG
+          # release; their numbers are taken too. Inventories are merged through
+          # files: a family inventory runs to hundreds of kilobytes, past the
+          # per-argument limit of the runner.
+          echo '[]' > asg-release-assets.json
+          if asg_release_id=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/mentra-coordinated-asg" --jq .id 2>/dev/null); then
+            gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/releases/$asg_release_id/assets?per_page=100" \
+              | jq 'add // []' > asg-release-assets.json
+          fi
+          jq -s 'add' family-only-assets.json asg-release-assets.json > family-container-assets.json
           node .github/scripts/allocate-family-build-sequence.mjs allocate \
             --assets family-container-assets.json \
             --base-version "$base_version" \
