@@ -1,5 +1,5 @@
 import {useCallback, useEffect, useMemo, useRef, useState} from "react"
-import {AppState, BackHandler, Keyboard, Platform, TextInput, TouchableOpacity, View} from "react-native"
+import {AppState, BackHandler, Keyboard, Platform, Pressable, TextInput, TouchableOpacity, View} from "react-native"
 import {Icon} from "@/components/ignite"
 import {useAppTheme} from "@/contexts/ThemeContext"
 import BottomSheet, {
@@ -33,8 +33,26 @@ export default function AllAppsGridSheet({bottomSheetRef}: {bottomSheetRef: Reac
   })
 
   const renderBackdrop = useCallback(
-    (props: any) => <BottomSheetBackdrop {...props} disappearsOnIndex={-1} appearsOnIndex={0} pressBehavior="close" />,
-    [],
+    (props: any) => (
+      <BottomSheetBackdrop
+        {...props}
+        disappearsOnIndex={-1}
+        appearsOnIndex={0}
+        accessible={false}
+        pressBehavior="none">
+        <Pressable
+          accessible={isOpen}
+          accessibilityElementsHidden={!isOpen}
+          importantForAccessibility={isOpen ? "yes" : "no-hide-descendants"}
+          accessibilityRole="button"
+          accessibilityLabel={translate("home:closeAllApps")}
+          testID="home.allApps.close"
+          className="absolute inset-0"
+          onPress={() => bottomSheetRef.current?.close()}
+        />
+      </BottomSheetBackdrop>
+    ),
+    [bottomSheetRef, isOpen],
   )
 
   useEffect(() => {
@@ -137,6 +155,8 @@ export default function AllAppsGridSheet({bottomSheetRef}: {bottomSheetRef: Reac
               <View className="flex-row items-center rounded-2xl px-4 h-12 bg-primary-foreground">
                 <Icon name="search" size={20} color={theme.colors.muted_foreground} />
                 <TextInput
+                  accessibilityLabel={translate("home:search")}
+                  testID="home.allApps.search"
                   ref={searchInputRef}
                   placeholder={translate("home:search")}
                   placeholderTextColor={theme.colors.muted_foreground}
@@ -147,7 +167,11 @@ export default function AllAppsGridSheet({bottomSheetRef}: {bottomSheetRef: Reac
                   hitSlop={16}
                 />
                 {searchQuery.length > 0 && (
-                  <TouchableOpacity onPress={() => setSearchQuery("")}>
+                  <TouchableOpacity
+                    accessibilityRole="button"
+                    accessibilityLabel={translate("home:clearSearch")}
+                    testID="home.allApps.clearSearch"
+                    onPress={() => setSearchQuery("")}>
                     <Icon name="x" size={20} color={theme.colors.muted_foreground} />
                   </TouchableOpacity>
                 )}

@@ -26,6 +26,7 @@ import {BlurView} from "expo-blur"
 import GlassView from "@/components/ui/GlassView"
 import {hapticBuzz} from "@/utils/utils"
 import {storage} from "@/utils/storage"
+import {translate} from "@/i18n"
 
 const {width: SCREEN_WIDTH, height: SCREEN_HEIGHT} = Dimensions.get("window")
 const CARD_SCALE = 0.67
@@ -199,6 +200,16 @@ function AppCardItem({app, index, count, translateX, onDismiss, onSelect}: AppCa
   return (
     <GestureDetector gesture={composedGesture}>
       <AnimatedPressable
+        accessible
+        accessibilityRole="button"
+        accessibilityLabel={app.name}
+        testID={`runningApps.miniapp.${app.packageName}`}
+        onAccessibilityTap={selectCard}
+        accessibilityActions={[{name: "activate"}, {name: "dismiss", label: translate("navigation:closeMiniapp")}]}
+        onAccessibilityAction={({nativeEvent}) => {
+          if (nativeEvent.actionName === "activate") selectCard()
+          if (nativeEvent.actionName === "dismiss") dismissCard()
+        }}
         className="items-start"
         style={[
           {
@@ -759,7 +770,7 @@ export default function AppSwitcher({swipeProgress, blurTargetRef: _blurTargetRe
     if (Platform.OS === "android" /*&& !androidBlur*/) {
       return (
         <Animated.View className="absolute inset-0 bg-background/75" style={backdropStyle}>
-          <Pressable className="flex-1" onPress={handleClose} />
+          <Pressable accessible={false} className="flex-1" onPress={handleClose} />
         </Animated.View>
       )
     }
@@ -774,13 +785,16 @@ export default function AppSwitcher({swipeProgress, blurTargetRef: _blurTargetRe
         blurReductionFactor={7}
         // blurTarget={blurTargetRef}// doesn't work yet on android for some reason :(
       >
-        <Pressable className="flex-1" onPress={handleClose} />
+        <Pressable accessible={false} className="flex-1" onPress={handleClose} />
       </AnimatedBlurView>
     )
   }
 
   return (
     <Animated.View
+      testID="home.runningApps"
+      accessibilityElementsHidden={!isOpen}
+      importantForAccessibility={isOpen ? "auto" : "no-hide-descendants"}
       className="absolute inset-0"
       pointerEvents="box-none"
       style={[{paddingBottom: insets.bottom}, parentContainerStyle]}>
@@ -806,7 +820,13 @@ export default function AppSwitcher({swipeProgress, blurTargetRef: _blurTargetRe
         {/* Cards Carousel */}
         <GestureDetector gesture={panGesture}>
           <Animated.View className="flex-1 justify-center" style={openXAnimatedStyle}>
-            <Pressable className="absolute inset-0" onPress={handleClose} />
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={translate("appSwitcher:close")}
+              testID="home.runningApps.close"
+              className="absolute inset-0"
+              onPress={handleClose}
+            />
             <Animated.View className="flex-row items-center">
               {apps.map((app, index) => (
                 <AppCardItem

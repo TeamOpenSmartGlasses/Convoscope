@@ -1,0 +1,103 @@
+import {command, snapshot, visible, type Command, type Selector, type Snapshot} from "./driver"
+import {Report} from "./report"
+
+export interface Check {
+  selector: Selector
+  action?: string
+  absent?: boolean
+  count?: number
+}
+export interface Context {
+  email: string
+  password: string
+  fixture: string
+}
+export interface Step {
+  id: string
+  instruction: string
+  expected: string
+  action?: Command | ((context: Context, state: Snapshot) => Command)
+  checks: Check[] | ((context: Context) => Check[])
+  timeoutMs?: number
+}
+
+export async function waitFor(checks: Check[], timeoutMs = 10000): Promise<Snapshot> {
+  const deadline = performance.now() + timeoutMs
+  let last: Snapshot | undefined
+  let unmet = ""
+  while (performance.now() < deadline) {
+    last = await snapshot()
+    const failure = checks.find((check) => {
+      const count = visible(last!, check.selector).filter(
+        (element) => !check.action || element.actions.includes(check.action),
+      ).length
+      const ok = check.absent ? count === 0 : check.count !== undefined ? count === check.count : count > 0
+      if (!ok)
+        unmet = `Expected ${check.absent ? "no" : check.count ?? "at least one"} match for ${JSON.stringify(
+          check.selector,
+        )}${check.action ? ` exposing ${check.action}` : ""}, found ${count}`
+      return !ok
+    })
+    if (!failure) return last
+    await Bun.sleep(150)
+  }
+  throw new Error(`${unmet || "No snapshot available"} within ${timeoutMs} ms`)
+}
+
+export async function executeSteps(steps: Step[], context: Context, report: Report) {
+  let failed = false
+  for (const step of steps) {
+    if (failed) {
+      await report.record({
+        id: step.id,
+        instruction: step.instruction,
+        expected: step.expected,
+        status: "not-run",
+        durationMs: 0,
+      })
+      continue
+    }
+    const start = performance.now()
+    let state: Snapshot | undefined
+    let videoStart: number | undefined
+    try {
+      videoStart = await report.video?.mark()
+      state = await snapshot()
+      const action = typeof step.action === "function" ? step.action(context, state) : step.action
+      if (action) await command(action)
+      if (action?.op === "relaunch") await report.video?.reattach()
+      state = await waitFor(typeof step.checks === "function" ? step.checks(context) : step.checks, step.timeoutMs)
+      const videoEnd = await report.video?.mark()
+      const result = await report.record(
+        {
+          id: step.id,
+          instruction: step.instruction,
+          expected: step.expected,
+          status: "passed",
+          durationMs: Math.round(performance.now() - start),
+          videoStart,
+          videoEnd,
+        },
+        state,
+      )
+      failed = result.status === "failed"
+    } catch (error) {
+      state = await snapshot().catch(() => state)
+      await report.record(
+        {
+          id: step.id,
+          instruction: step.instruction,
+          expected: step.expected,
+          status: "failed",
+          durationMs: Math.round(performance.now() - start),
+          error: String(error),
+          videoStart,
+          videoEnd: await report.video?.mark().catch(() => undefined),
+        },
+        state,
+      )
+      failed = true
+    }
+  }
+  return !failed
+}
