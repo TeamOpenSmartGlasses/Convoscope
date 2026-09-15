@@ -94,9 +94,6 @@ export async function preparePairingScan(deviceModel: string): Promise<boolean> 
     }
 
     if (Platform.OS === "android") {
-      const microphoneGranted = await requestFeaturePermissions(PermissionFeatures.MICROPHONE)
-      if (!microphoneGranted) return false
-
       const locationGranted = await requestFeaturePermissions(PermissionFeatures.LOCATION)
       if (!locationGranted) return false
 

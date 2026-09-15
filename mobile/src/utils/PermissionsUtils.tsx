@@ -334,6 +334,11 @@ export interface PermissionRequestResult {
   previouslyDenied: boolean
 }
 
+// Android's check API cannot distinguish denied from "Don't ask again". Remember
+// only an observed blocked result so Settings is offered on a subsequent attempt,
+// never immediately after the user declines the native prompt.
+const ANDROID_MICROPHONE_BLOCKED_KEY = "PERMISSION_BLOCKED_microphone"
+
 // Request permissions for a specific feature - the main entry point
 export const requestFeaturePermissions = async (featureKey: string): Promise<boolean> => {
   const config = PERMISSION_CONFIG[featureKey]
@@ -412,6 +417,18 @@ export const requestFeaturePermissions = async (featureKey: string): Promise<boo
   // For Android
   if (Platform.OS === "android" && config.android.length > 0) {
     try {
+      if (featureKey === PermissionFeatures.MICROPHONE) {
+        if (await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO)) {
+          await storage.remove(ANDROID_MICROPHONE_BLOCKED_KEY)
+          return true
+        }
+        const blocked = storage.load<boolean>(ANDROID_MICROPHONE_BLOCKED_KEY)
+        if (!blocked.is_error() && blocked.value === true) {
+          await handlePreviouslyDeniedPermission(config)
+          return false
+        }
+      }
+
       // Filter out any null/undefined permissions before requesting
       console.log(`${featureKey} original permissions:`, config.android)
       console.log(
@@ -450,6 +467,10 @@ export const requestFeaturePermissions = async (featureKey: string): Promise<boo
 
       // Handle "Never Ask Again" case similar to iOS previouslyDenied
       if (anyNeverAskAgain) {
+        if (featureKey === PermissionFeatures.MICROPHONE) {
+          await storage.save(ANDROID_MICROPHONE_BLOCKED_KEY, true)
+          return false
+        }
         // Handle the previously denied permission by showing the alert
         await handlePreviouslyDeniedPermission(config)
         // Just return false, since we've handled the alert internally
@@ -616,7 +637,7 @@ export const handlePreviouslyDeniedPermission = (config: PermissionConfig): Prom
   return new Promise((resolve) => {
     showAlert(
       translate("permissions:permissionRequired"),
-      Platform.OS === "ios" && config === PERMISSION_CONFIG[PermissionFeatures.MICROPHONE]
+      config === PERMISSION_CONFIG[PermissionFeatures.MICROPHONE]
         ? translate("permissions:phoneMicrophoneDeniedMessage")
         : translate("permissions:permissionRequiredMessage", {name: config.name}),
       [
@@ -843,9 +864,9 @@ export const checkPermissionsUI = async (app: AppletInterface) => {
 export const requestPermissionsUI = async (permissions: string[]): Promise<"completed" | "cancelled"> => {
   for (const permission of permissions) {
     const granted = await requestFeaturePermissions(permission)
-    // Respect iOS microphone denial immediately. In particular, do not let
+    // Respect microphone denial immediately. In particular, do not let
     // launch callers follow it with another prompt directing users to Settings.
-    if (Platform.OS === "ios" && permission === PermissionFeatures.MICROPHONE && !granted) {
+    if (permission === PermissionFeatures.MICROPHONE && !granted) {
       return "cancelled"
     }
   }

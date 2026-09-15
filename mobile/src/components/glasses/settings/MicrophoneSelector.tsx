@@ -1,12 +1,10 @@
-import {Platform, View} from "react-native"
+import {View} from "react-native"
 
 import {Text} from "@/components/ignite"
 import {OptionList} from "@/components/ui/Options"
 import {translate} from "@/i18n/translate"
 import {SETTINGS, useSetting} from "@mentra/engine"
-import showAlert from "@/utils/AlertUtils"
 import {PermissionFeatures, requestFeaturePermissions} from "@/utils/PermissionsUtils"
-import {useAppTheme} from "@/contexts/ThemeContext"
 
 const MIC_OPTIONS = [
   {
@@ -30,26 +28,11 @@ const MIC_OPTIONS = [
 
 export function MicrophoneSelector() {
   const [preferredMic, setPreferredMic] = useSetting(SETTINGS.preferred_mic.key)
-  const {theme} = useAppTheme()
 
   const setMic = async (val: string) => {
     if (val === "phone") {
       const hasMicPermission = await requestFeaturePermissions(PermissionFeatures.MICROPHONE)
-      if (!hasMicPermission) {
-        // The permission helper handles a later retry; do not follow an iOS
-        // system denial with another instruction to enable access in Settings.
-        if (Platform.OS === "ios") return
-        showAlert(
-          translate("microphoneSettings:microphonePermissionRequired"),
-          translate("microphoneSettings:microphonePermissionRequiredMessage"),
-          [{text: translate("common:ok")}],
-          {
-            iconName: "microphone",
-            iconColor: theme.colors.primary,
-          },
-        )
-        return
-      }
+      if (!hasMicPermission) return
     }
 
     await setPreferredMic(val)

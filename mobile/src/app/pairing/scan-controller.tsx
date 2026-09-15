@@ -77,20 +77,6 @@ export default function SelectGlassesBluetoothScreen() {
       }
     }
 
-    // iOS glasses audio uses BLE and does not require phone microphone access.
-    if (Platform.OS === "android") {
-      const hasMicPermission = await requestFeaturePermissions(PermissionFeatures.MICROPHONE)
-
-      if (!hasMicPermission) {
-        showAlert(
-          "Microphone Permission Required",
-          "Microphone permission is required to connect to smart glasses. Voice control and audio features are essential for the AR experience.",
-          [{text: "OK"}],
-        )
-        return
-      }
-    }
-
     await startPairing(device)
   }
 

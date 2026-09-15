@@ -89,21 +89,27 @@ describe("preparePairingScan", () => {
     expect(engine.miniapps.stopAll).not.toHaveBeenCalled()
   })
 
-  it("still stops Android pairing when microphone permission is denied", async () => {
+  it.each([30, 33, 36])("allows Android %s pairing without microphone access", async (version) => {
     Object.defineProperty(Platform, "OS", {value: "android", configurable: true})
-    Object.defineProperty(Platform, "Version", {value: 33, configurable: true})
-    const requestMultiple = jest.spyOn(PermissionsAndroid, "requestMultiple").mockResolvedValue({
-      [PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN]: PermissionsAndroid.RESULTS.GRANTED,
-      [PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT]: PermissionsAndroid.RESULTS.GRANTED,
-      [PermissionsAndroid.PERMISSIONS.BLUETOOTH_ADVERTISE]: PermissionsAndroid.RESULTS.GRANTED,
-    } as Awaited<ReturnType<typeof PermissionsAndroid.requestMultiple>>)
+    Object.defineProperty(Platform, "Version", {value: version, configurable: true})
+    const requestMultiple = jest
+      .spyOn(PermissionsAndroid, "requestMultiple")
+      .mockImplementation(
+        async (permissions) =>
+          Object.fromEntries(
+            permissions.map((permission) => [permission, PermissionsAndroid.RESULTS.GRANTED]),
+          ) as Awaited<ReturnType<typeof PermissionsAndroid.requestMultiple>>,
+      )
     ;(requestFeaturePermissions as jest.Mock).mockImplementation(
       async (feature) => feature !== PermissionFeatures.MICROPHONE,
     )
 
-    await expect(preparePairingScan("Mentra Live")).resolves.toBe(false)
-    expect(engine.miniapps.stopAll).not.toHaveBeenCalled()
-    expect(requestFeaturePermissions).not.toHaveBeenCalledWith(PermissionFeatures.LOCATION)
+    for (const model of ["Mentra Live", "Even Realities G1", "Simulated Glasses"]) {
+      await expect(preparePairingScan(model)).resolves.toBe(true)
+    }
+    expect(engine.miniapps.stopAll).toHaveBeenCalledTimes(3)
+    expect(requestFeaturePermissions).not.toHaveBeenCalledWith(PermissionFeatures.MICROPHONE)
+    expect(requestFeaturePermissions).toHaveBeenCalledWith(PermissionFeatures.LOCATION)
     requestMultiple.mockRestore()
   })
 
@@ -128,8 +134,8 @@ describe("preparePairingScan", () => {
       PermissionsAndroid.PERMISSIONS.BLUETOOTH_ADVERTISE,
     ])
     expect(requestFeaturePermissions).toHaveBeenNthCalledWith(2, PermissionFeatures.BLUETOOTH)
-    expect(requestFeaturePermissions).toHaveBeenNthCalledWith(3, PermissionFeatures.MICROPHONE)
-    expect(requestFeaturePermissions).toHaveBeenNthCalledWith(4, PermissionFeatures.LOCATION)
+    expect(requestFeaturePermissions).toHaveBeenNthCalledWith(3, PermissionFeatures.LOCATION)
+    expect(requestFeaturePermissions).not.toHaveBeenCalledWith(PermissionFeatures.MICROPHONE)
     expect(checkConnectivityRequirementsUI).toHaveBeenCalledTimes(1)
     requestMultiple.mockRestore()
   })

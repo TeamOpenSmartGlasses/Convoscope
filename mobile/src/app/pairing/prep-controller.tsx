@@ -139,11 +139,8 @@ export default function PairingPrepScreen() {
         }
       }
 
-      // Preserve Android's startup permissions; iOS pairing only needs Bluetooth.
+      // Android BLE scanning also requires location access.
       if (Platform.OS === "android") {
-        const micGranted = await requestFeaturePermissions(PermissionFeatures.MICROPHONE)
-        if (!micGranted) return
-
         console.log("Requesting location permission for Android BLE scanning...")
 
         // This now handles showing alerts for previously denied permissions internally
