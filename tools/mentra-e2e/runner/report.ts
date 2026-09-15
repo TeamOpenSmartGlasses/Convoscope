@@ -1,5 +1,5 @@
 import {createHash, randomUUID} from "node:crypto"
-import {appendFile, mkdir, readFile, readdir, writeFile, open, unlink} from "node:fs/promises"
+import {appendFile, mkdir, readFile, readdir, writeFile, open, statfs, unlink} from "node:fs/promises"
 import {homedir} from "node:os"
 import {join, relative, resolve} from "node:path"
 import {bin, command, root, type Doctor, type Snapshot} from "./driver"
@@ -18,6 +18,8 @@ export interface StepResult {
   videoEnd?: number
   screenshotSettled?: boolean
   screenshotVideoTime?: number
+  screenshotObservedVideoTime?: number
+  screenshotObservationAgeSeconds?: number
   focusBefore?: string
   focusAfter?: string
 }
@@ -106,6 +108,7 @@ export class Report {
       status: "running",
       executionMode: this.suite === "discovery" ? "interactive-discovery" : "deterministic-replay",
       modelCalls: this.suite === "discovery" ? null : 0,
+      evidenceVersion: 2,
       sourceReference,
       app: doctor,
       appExecutableHash: doctor.executablePath
@@ -150,6 +153,14 @@ export class Report {
   }
 
   async startVideo() {
+    const disk = await statfs(this.directory)
+    const availableBytes = disk.bavail * disk.bsize
+    this.metadata.diskAvailableBytes = availableBytes
+    await this.flush()
+    if (availableBytes < 5 * 1024 ** 3)
+      throw new Error(
+        "Recording requires at least 5 GiB free on the artifact volume; macOS can stop capture during disk cache purges",
+      )
     this.video = new Video(join(this.directory, "routine.mp4"))
     const ready = await this.video.ready()
     this.metadata.video = {path: "routine.mp4", ...ready}
@@ -171,6 +182,9 @@ export class Report {
           : await command<{width: number; height: number; bytes: number}>({op: "screenshot", path})
         if ("settled" in image) result.screenshotSettled = Boolean(image.settled)
         if ("frameTime" in image) result.screenshotVideoTime = Number(image.frameTime)
+        if ("observationTime" in image) result.screenshotObservedVideoTime = Number(image.observationTime)
+        if ("observationAgeSeconds" in image)
+          result.screenshotObservationAgeSeconds = Number(image.observationAgeSeconds)
         const bytes = await readFile(join(this.directory, result.screenshot))
         if (
           !bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) ||

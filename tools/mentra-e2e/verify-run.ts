@@ -52,6 +52,20 @@ for (const step of steps) {
     step.screenshotVideoTime !== undefined && step.screenshotVideoTime <= duration + 0.1,
     `${step.id}: screenshot exceeds video`,
   )
+  if (run.evidenceVersion >= 2) {
+    assert.ok(
+      step.screenshotObservationAgeSeconds !== undefined &&
+        step.screenshotObservationAgeSeconds >= 0 &&
+        step.screenshotObservationAgeSeconds <= 1,
+      `${step.id}: stale or missing screen observation`,
+    )
+    assert.ok(
+      step.screenshotObservedVideoTime !== undefined &&
+        step.screenshotObservedVideoTime >= step.videoEnd - 1 &&
+        step.screenshotObservedVideoTime <= duration + 0.1,
+      `${step.id}: screen observation is outside the step's evidence interval`,
+    )
+  }
   previousStart = step.videoStart
   const chapter = chapters.find((entry: {id: string}) => entry.id === step.id)
   assert.equal(chapter?.start, step.videoStart, `${step.id}: mismatched chapter index`)
@@ -70,6 +84,7 @@ console.log(
       modelCalls: run.modelCalls,
       recovery: run.recovery,
       artifactChecks: "passed",
+      frameLiveness: run.evidenceVersion >= 2 ? "verified" : "not-recorded-by-legacy-run",
       browserInteraction: "not-verified",
     },
     null,

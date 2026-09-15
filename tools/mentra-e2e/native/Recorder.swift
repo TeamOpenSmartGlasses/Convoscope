@@ -3,7 +3,7 @@ import AVFoundation
 import CoreImage
 import ScreenCaptureKit
 
-final class RecordingObserver: NSObject, SCRecordingOutputDelegate, SCStreamOutput, @unchecked Sendable {
+final class RecordingObserver: NSObject, SCRecordingOutputDelegate, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
   private let lock = NSLock()
   private var started = false
   private var finished = false
@@ -13,6 +13,8 @@ final class RecordingObserver: NSObject, SCRecordingOutputDelegate, SCStreamOutp
   private var latestPTS: Double = 0
   private var latestHash: UInt64 = 0
   private var changedAt: Double = 0
+  private var observedAt: Double = 0
+  private var frameStatus: SCFrameStatus?
 
   func state() -> (Bool, Bool, String?, Double?) {
     lock.lock(); defer { lock.unlock() }
@@ -31,11 +33,24 @@ final class RecordingObserver: NSObject, SCRecordingOutputDelegate, SCStreamOutp
     lock.lock(); failure = String(describing: error); lock.unlock()
   }
 
+  func stream(_: SCStream, didStopWithError error: Error) {
+    lock.lock(); failure = "Screen capture stopped: \(error)"; lock.unlock()
+  }
+
   func stream(_: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
     guard type == .screen, sampleBuffer.isValid,
           let attachments = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: false) as? [[SCStreamFrameInfo: Any]],
-          attachments.first?[.status] as? Int == SCFrameStatus.complete.rawValue else { return }
+          let rawStatus = attachments.first?[.status] as? Int,
+          let status = SCFrameStatus(rawValue: rawStatus) else { return }
     lock.lock()
+    defer { lock.unlock() }
+    frameStatus = status
+    // Idle means the window server observed an unchanged screen. It confirms
+    // liveness without replacing the last complete image with an empty buffer.
+    if status == .complete || status == .idle {
+      observedAt = CMClockGetTime(CMClockGetHostTimeClock()).seconds
+    }
+    guard status == .complete else { return }
     if firstPTS == nil { firstPTS = CMSampleBufferGetPresentationTimeStamp(sampleBuffer).seconds }
     latestBuffer = CMSampleBufferGetImageBuffer(sampleBuffer)
     latestPTS = CMSampleBufferGetPresentationTimeStamp(sampleBuffer).seconds
@@ -54,25 +69,35 @@ final class RecordingObserver: NSObject, SCRecordingOutputDelegate, SCStreamOutp
       }
       CVPixelBufferUnlockBaseAddress(buffer, .readOnly)
     }
-    lock.unlock()
   }
 
   func isSettled() -> Bool {
     lock.lock(); defer { lock.unlock() }
-    return latestBuffer != nil && CMClockGetTime(CMClockGetHostTimeClock()).seconds - changedAt >= 0.2
+    let now = CMClockGetTime(CMClockGetHostTimeClock()).seconds
+    return failure == nil && latestBuffer != nil && (frameStatus == .complete || frameStatus == .idle)
+      && now - observedAt <= 1 && now - changedAt >= 0.2
   }
 
   func screenshot(path: String) throws -> [String: Any] {
     lock.lock()
     let buffer = latestBuffer
     let time = latestPTS - (firstPTS ?? latestPTS)
+    let observationTime = observedAt - (firstPTS ?? observedAt)
+    let age = CMClockGetTime(CMClockGetHostTimeClock()).seconds - observedAt
+    let error = failure
+    let status = frameStatus
     lock.unlock()
+    if let error { throw DriverFailure(error) }
+    guard age <= 1, status == .complete || status == .idle else {
+      throw DriverFailure("No live video frame: last status \(String(describing: status)), observation age \(age) seconds")
+    }
     guard let buffer else { throw DriverFailure("No video frame is available for a screenshot") }
     let image = CIImage(cvPixelBuffer: buffer)
     guard let cg = CIContext().createCGImage(image, from: image.extent),
           let png = NSBitmapImageRep(cgImage: cg).representation(using: .png, properties: [:]) else { throw DriverFailure("Video-frame PNG encoding failed") }
     try png.write(to: URL(fileURLWithPath: path), options: .atomic)
-    return ["event": "screenshot", "width": cg.width, "height": cg.height, "bytes": png.count, "frameTime": time]
+    return ["event": "screenshot", "width": cg.width, "height": cg.height, "bytes": png.count, "frameTime": time,
+            "observationTime": observationTime, "observationAgeSeconds": age]
   }
 }
 
@@ -107,7 +132,7 @@ extension Driver {
     configuration.ignoreShadowsSingleWindow = true
     configuration.includeChildWindows = true
     let observer = RecordingObserver()
-    let stream = SCStream(filter: filter, configuration: configuration, delegate: nil)
+    let stream = SCStream(filter: filter, configuration: configuration, delegate: observer)
     try stream.addStreamOutput(observer, type: .screen, sampleHandlerQueue: DispatchQueue(label: "mentra.e2e.frames"))
     let recordingConfig = SCRecordingOutputConfiguration()
     recordingConfig.outputURL = URL(fileURLWithPath: path)
@@ -145,6 +170,7 @@ extension Driver {
               request["op"] == "screenshot", let path = request["path"] else { throw DriverFailure("Invalid recorder request") }
         let settleDeadline = Date().addingTimeInterval(2)
         while !observer.isSettled(), Date() < settleDeadline {
+          if let error = observer.state().2 { throw DriverFailure(error) }
           try await Task.sleep(for: .milliseconds(30))
         }
         var capture = try observer.screenshot(path: path)

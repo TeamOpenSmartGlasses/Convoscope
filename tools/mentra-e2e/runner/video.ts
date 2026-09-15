@@ -90,6 +90,8 @@ export class Video {
       height: number
       bytes: number
       frameTime: number
+      observationTime: number
+      observationAgeSeconds: number
       settled: boolean
     }
   }
