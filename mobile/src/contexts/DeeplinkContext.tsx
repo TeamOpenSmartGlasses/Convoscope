@@ -1,6 +1,6 @@
 import * as Linking from "expo-linking"
 import * as WebBrowser from "expo-web-browser"
-import {FC, ReactNode, createContext, useContext, useEffect} from "react"
+import {FC, ReactNode, createContext, useContext, useEffect, useRef} from "react"
 import {AppState, Platform} from "react-native"
 
 import {useSplashLoader} from "@/contexts/SplashLoaderProvider"
@@ -213,10 +213,8 @@ const deepLinkRoutes: DeepLinkRoute[] = [
           nav.replace(`/auth/start?authError=oauth_failed`)
           return
         }
-        BgTimer.setTimeout(() => {
-          nav.setAnimation("none")
-          nav.replaceAll("/")
-        }, 100)
+        nav.setAnimation("none")
+        nav.replaceAll("/")
         return
       }
 
@@ -417,6 +415,7 @@ export const useDeeplink = () => useContext(DeeplinkContext)
 export const DeeplinkProvider: FC<{children: ReactNode}> = ({children}) => {
 
   const {setSplashEnabled} = useSplashLoader()
+  const lastProcessed = useRef({url: null as string | null, time: 0})
   const nav = useNavigationStore.getState()
   const config = {
     scheme: "com.mentra",
@@ -447,13 +446,14 @@ export const DeeplinkProvider: FC<{children: ReactNode}> = ({children}) => {
   }
 
   useEffect(() => {
-    Linking.addEventListener("url", handleUrlRaw)
+    const subscription = Linking.addEventListener("url", handleUrlRaw)
     Linking.getInitialURL().then((url) => {
       console.log("@@@@@@@@@@@@@ INITIAL URL @@@@@@@@@@@@@@@", url)
       if (url) {
         processUrl(url, true)
       }
     })
+    return () => subscription.remove()
   }, [])
 
   /**
@@ -513,9 +513,6 @@ export const DeeplinkProvider: FC<{children: ReactNode}> = ({children}) => {
     return params
   }
 
-  let lastProcessedUrl: string | null = null
-  let lastProcessedTime = 0
-
   const processUrl = async (url: string, initial: boolean = false) => {
     try {
       // ignore expo-dev-deeplinks: (this was causing android to restart the app after hot-reloads twice)
@@ -531,12 +528,11 @@ export const DeeplinkProvider: FC<{children: ReactNode}> = ({children}) => {
       // call happens >2s later (1s initial delay + init time + 1s DEEPLINK_DELAY)
       // so it naturally falls outside the dedup window.
       const now = Date.now()
-      if (!initial && url === lastProcessedUrl && now - lastProcessedTime < 3000) {
+      if (!initial && url === lastProcessed.current.url && now - lastProcessed.current.time < 3000) {
         console.log("DEEPLINK: Ignoring duplicate URL")
         return
       }
-      lastProcessedUrl = url
-      lastProcessedTime = now
+      lastProcessed.current = {url, time: now}
 
       // For initial URLs (cold start), set the pending route BEFORE the delay.
       // This prevents a race condition where index.tsx init completes during the
@@ -597,14 +593,13 @@ export const DeeplinkProvider: FC<{children: ReactNode}> = ({children}) => {
         console.log("@@@@@@@@@@@@@ PARAMS @@@@@@@@@@@@@@@", params)
         console.log("@@@@@@@@@@@@@ URL @@@@@@@@@@@@@@@", url)
         setSplashEnabled(true)
-        BgTimer.setTimeout(async () => {
-          await matchedRoute.handler(url, params)
-          BgTimer.setTimeout(() => {
-            setSplashEnabled(false)
-          }, 2500)
-        }, 100)
+        // OAuth must start its one-time exchange while the browser is still
+        // presented. A JS timer can be suspended during that transition.
+        await matchedRoute.handler(url, params)
       } catch (error) {
         console.warn("Route handler failed, router may not be ready:", error)
+      } finally {
+        setSplashEnabled(false)
       }
     } catch (error) {
       console.error("Error handling deep link:", error)
