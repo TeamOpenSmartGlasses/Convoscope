@@ -377,24 +377,22 @@ test("resubmit decides every step from the latest and previous attempts and stop
   )
 })
 
-test("resubmit adopts only the one run its own dispatch started", () => {
-  const dispatchedAt = "2026-09-15T20:00:00Z"
-  const run = (id, createdAt = "2026-09-15T20:00:10Z") => ({
+test("resubmit adopts only the run whose name carries its dispatch id", () => {
+  const run = (id, title) => ({
     databaseId: id,
-    createdAt,
+    createdAt: "2026-09-15T20:00:10Z",
     url: `https://example.com/runs/${id}`,
+    displayTitle: title,
   })
-  assert.equal(selectDispatchedRun([run(1)], [run(1)], dispatchedAt), null)
-  assert.deepEqual(selectDispatchedRun([run(1)], [run(2), run(1)], dispatchedAt), run(2))
-  assert.throws(
-    () => selectDispatchedRun([run(1)], [run(3), run(2), run(1)], dispatchedAt),
-    /More than one new dispatch/,
-  )
-  // A run this login started earlier (another terminal, an interrupted
-  // invocation) that only becomes visible now is older than the dispatch.
-  const stale = run(9, "2026-09-15T19:50:00Z")
-  assert.equal(selectDispatchedRun([], [stale], dispatchedAt), null)
-  assert.deepEqual(selectDispatchedRun([], [stale, run(2)], dispatchedAt), run(2))
+  const mine = "6f0d1a2b-3c4d-4e5f-8a9b-0c1d2e3f4a5b"
+  const runs = [
+    run(3, `3.1.1 attempt 2 preflight [${mine}]`),
+    run(2, "3.1.1 attempt 2 preflight [other-id]"),
+    run(1, "3.1.1 attempt 2 preflight "),
+  ]
+  assert.equal(selectDispatchedRun(runs, mine).databaseId, 3)
+  assert.equal(selectDispatchedRun(runs.slice(1), mine), null)
+  assert.throws(() => selectDispatchedRun([runs[0], {...runs[0], databaseId: 4}], mine), /more than one run/)
 })
 
 test("resubmit never depends on the common record load", () => {

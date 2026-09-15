@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import {execFileSync, spawnSync} from "node:child_process"
-import {createHash} from "node:crypto"
+import {createHash, randomUUID} from "node:crypto"
 import {copyFileSync, mkdtempSync, readFileSync, writeFileSync} from "node:fs"
 import {tmpdir} from "node:os"
 import path from "node:path"
@@ -461,60 +461,37 @@ function sleepSeconds(seconds) {
 // Dispatch a workflow and wait for the run it starts. gh does not return the
 // run id, so the newest dispatch of that workflow created after the call is
 // taken as the run; the CLI never dispatches the same workflow twice at once.
-// The run this dispatch started is the one new workflow_dispatch run by this
-// login that was not listed before the dispatch. Two new ones (another
-// operator dispatching the same workflow at the same moment) are ambiguous
-// and stop the command rather than adopt a stranger's run.
-export function selectDispatchedRun(before, after, dispatchedAt) {
-  const known = new Set(before.map((run) => run.databaseId))
-  const cutoff = new Date(dispatchedAt).getTime() - DISPATCH_CLOCK_SKEW_SECONDS * 1_000
-  const fresh = after.filter((run) => !known.has(run.databaseId) && new Date(run.createdAt).getTime() >= cutoff)
-  if (fresh.length > 1) {
-    throw new Error(`More than one new dispatch is running: ${fresh.map((run) => run.url).join(", ")}`)
+// Every dispatch carries a fresh id that the workflow puts in its run name,
+// so the run this dispatch started is the one whose name carries the id.
+export function selectDispatchedRun(runs, dispatchId) {
+  const matches = runs.filter((run) => (run.displayTitle ?? "").includes(`[${dispatchId}]`))
+  if (matches.length > 1) {
+    throw new Error(`Dispatch ${dispatchId} matches more than one run: ${matches.map((run) => run.url).join(", ")}`)
   }
-  return fresh[0] ?? null
-}
-
-// A run created before this dispatch (minus clock skew) is never adopted, and
-// after the first sighting the listing is watched a little longer so a second
-// new run of this login, surfacing late, is caught as an ambiguity.
-const DISPATCH_CLOCK_SKEW_SECONDS = 60
-const DISPATCH_SETTLE_POLLS = 3
-
-function listDispatches(workflow, login) {
-  return ghJson([
-    "run",
-    "list",
-    "--repo",
-    REPOSITORY,
-    "--workflow",
-    workflow,
-    "--event",
-    "workflow_dispatch",
-    "--user",
-    login,
-    "--limit",
-    "20",
-    "--json",
-    "databaseId,createdAt,url",
-  ])
+  return matches[0] ?? null
 }
 
 function dispatchAndWait(workflow, fields) {
-  const login = ghJson(["api", "user"]).login
-  const before = listDispatches(workflow, login)
-  const dispatchedAt = new Date().toISOString()
-  dispatch(workflow, fields)
+  const dispatchId = randomUUID()
+  dispatch(workflow, {...fields, dispatch_id: dispatchId})
   let run = null
-  let settle = 0
-  for (let attempt = 0; attempt < 24 + DISPATCH_SETTLE_POLLS && settle < DISPATCH_SETTLE_POLLS; attempt += 1) {
+  for (let attempt = 0; attempt < 24 && !run; attempt += 1) {
     sleepSeconds(5)
-    const seen = selectDispatchedRun(before, listDispatches(workflow, login), dispatchedAt)
-    if (seen && run && seen.databaseId !== run.databaseId) {
-      throw new Error(`More than one new dispatch is running: ${run.url}, ${seen.url}`)
-    }
-    run = seen ?? run
-    if (run) settle += 1
+    const runs = ghJson([
+      "run",
+      "list",
+      "--repo",
+      REPOSITORY,
+      "--workflow",
+      workflow,
+      "--event",
+      "workflow_dispatch",
+      "--limit",
+      "20",
+      "--json",
+      "databaseId,createdAt,url,displayTitle",
+    ])
+    run = selectDispatchedRun(runs, dispatchId)
   }
   if (!run) throw new Error(`${workflow} did not start within two minutes of the dispatch`)
   console.log(`Waiting for ${run.url}`)
