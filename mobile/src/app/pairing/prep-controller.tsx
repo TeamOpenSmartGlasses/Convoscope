@@ -139,22 +139,11 @@ export default function PairingPrepScreen() {
         }
       }
 
-      // Request microphone permission (needed for both platforms)
-      console.log("Requesting microphone permission...")
-
-      // This now handles showing alerts for previously denied permissions internally
-      const micGranted = await requestFeaturePermissions(PermissionFeatures.MICROPHONE)
-
-      console.log("Microphone permission result:", micGranted)
-
-      if (!micGranted) {
-        // The specific alert for previously denied permission is already handled in requestFeaturePermissions
-        // We just need to stop the flow here
-        return
-      }
-
-      // Request location permission (needed for Android BLE scanning)
+      // Preserve Android's startup permissions; iOS pairing only needs Bluetooth.
       if (Platform.OS === "android") {
+        const micGranted = await requestFeaturePermissions(PermissionFeatures.MICROPHONE)
+        if (!micGranted) return
+
         console.log("Requesting location permission for Android BLE scanning...")
 
         // This now handles showing alerts for previously denied permissions internally

@@ -92,7 +92,7 @@ const PERMISSION_CONFIG: Record<string, PermissionConfig> = {
   },
   [PermissionFeatures.MICROPHONE]: {
     name: "Microphone",
-    description: "Used for audio and voice commands on your glasses",
+    description: "Used by features that capture audio through this phone",
     ios: [PERMISSIONS.IOS.MICROPHONE],
     android: [PermissionsAndroid.PERMISSIONS.RECORD_AUDIO],
     critical: false,
@@ -616,7 +616,9 @@ export const handlePreviouslyDeniedPermission = (config: PermissionConfig): Prom
   return new Promise((resolve) => {
     showAlert(
       translate("permissions:permissionRequired"),
-      translate("permissions:permissionRequiredMessage", {name: config.name}),
+      Platform.OS === "ios" && config === PERMISSION_CONFIG[PermissionFeatures.MICROPHONE]
+        ? translate("permissions:phoneMicrophoneDeniedMessage")
+        : translate("permissions:permissionRequiredMessage", {name: config.name}),
       [
         {
           text: translate("common:cancel"),
@@ -840,7 +842,12 @@ export const checkPermissionsUI = async (app: AppletInterface) => {
 
 export const requestPermissionsUI = async (permissions: string[]): Promise<"completed" | "cancelled"> => {
   for (const permission of permissions) {
-    await requestFeaturePermissions(permission)
+    const granted = await requestFeaturePermissions(permission)
+    // Respect iOS microphone denial immediately. In particular, do not let
+    // launch callers follow it with another prompt directing users to Settings.
+    if (Platform.OS === "ios" && permission === PermissionFeatures.MICROPHONE && !granted) {
+      return "cancelled"
+    }
   }
 
   if (permissions.includes(PermissionFeatures.READ_NOTIFICATIONS) && Platform.OS === "android") {

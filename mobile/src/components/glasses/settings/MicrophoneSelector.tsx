@@ -1,4 +1,4 @@
-import {View} from "react-native"
+import {Platform, View} from "react-native"
 
 import {Text} from "@/components/ignite"
 import {OptionList} from "@/components/ui/Options"
@@ -36,6 +36,9 @@ export function MicrophoneSelector() {
     if (val === "phone") {
       const hasMicPermission = await requestFeaturePermissions(PermissionFeatures.MICROPHONE)
       if (!hasMicPermission) {
+        // The permission helper handles a later retry; do not follow an iOS
+        // system denial with another instruction to enable access in Settings.
+        if (Platform.OS === "ios") return
         showAlert(
           translate("microphoneSettings:microphonePermissionRequired"),
           translate("microphoneSettings:microphonePermissionRequiredMessage"),

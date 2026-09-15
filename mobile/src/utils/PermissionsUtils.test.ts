@@ -1,8 +1,15 @@
 import * as ExpoCalendar from "expo-calendar"
-import {Platform} from "react-native"
-import {request} from "react-native-permissions"
+import {Linking, Platform} from "react-native"
+import {check, PERMISSIONS, request, RESULTS} from "react-native-permissions"
 
-import {PermissionFeatures, requestFeaturePermissions} from "@/utils/PermissionsUtils"
+import showAlert from "@/utils/AlertUtils"
+import {
+  askPermissionsUI,
+  checkPermissionsUI,
+  PermissionFeatures,
+  requestFeaturePermissions,
+  requestPermissionsUI,
+} from "@/utils/PermissionsUtils"
 
 jest.mock("@mentra/crust", () => ({
   __esModule: true,
@@ -72,5 +79,101 @@ describe("requestFeaturePermissions calendar access", () => {
     expect(ExpoCalendar.getCalendarPermissionsAsync).toHaveBeenCalledTimes(1)
     expect(request).not.toHaveBeenCalled()
     expect(mockSave).toHaveBeenCalledWith("PERMISSION_GRANTED_calendar", true)
+  })
+})
+
+describe("iOS miniapp microphone permission", () => {
+  const originalPlatform = Platform.OS
+  const app = {
+    name: "Captions",
+    permissions: [{type: "MICROPHONE", required: true}],
+  } as Parameters<typeof askPermissionsUI>[0]
+  const theme = {} as Parameters<typeof askPermissionsUI>[1]
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    Object.defineProperty(Platform, "OS", {configurable: true, value: "ios"})
+    ;(check as jest.Mock).mockResolvedValue(RESULTS.DENIED)
+    ;(request as jest.Mock).mockResolvedValue(RESULTS.BLOCKED)
+  })
+
+  afterEach(() => {
+    Object.defineProperty(Platform, "OS", {configurable: true, value: originalPlatform})
+    jest.restoreAllMocks()
+  })
+
+  it("does not ask for microphone access for a miniapp that does not require it", async () => {
+    await expect(askPermissionsUI({...app, permissions: []}, theme)).resolves.toBe(1)
+    expect(check).not.toHaveBeenCalled()
+    expect(request).not.toHaveBeenCalled()
+    expect(showAlert).not.toHaveBeenCalled()
+  })
+
+  it("allows cancelling miniapp startup before the system prompt", async () => {
+    ;(showAlert as jest.Mock).mockImplementation((_title, _message, buttons) => buttons[0].onPress())
+    await expect(askPermissionsUI(app, theme)).resolves.toBe(-1)
+    expect(request).not.toHaveBeenCalled()
+  })
+
+  it.each([RESULTS.DENIED, RESULTS.BLOCKED])(
+    "cancels launch without opening Settings after Don't Allow (%s)",
+    async (result) => {
+      ;(request as jest.Mock).mockResolvedValue(result)
+      const openSettings = jest.spyOn(Linking, "openSettings").mockResolvedValue()
+      ;(showAlert as jest.Mock).mockImplementation((_title, _message, buttons) => buttons[1].onPress())
+
+      await expect(askPermissionsUI(app, theme)).resolves.toBe(-1)
+
+      expect(request).toHaveBeenCalledWith(PERMISSIONS.IOS.MICROPHONE)
+      expect(showAlert).toHaveBeenCalledTimes(1)
+      expect(openSettings).not.toHaveBeenCalled()
+    },
+  )
+
+  it("offers a cancellable feature-specific explanation when access was previously denied", async () => {
+    const openSettings = jest.spyOn(Linking, "openSettings").mockResolvedValue()
+    ;(check as jest.Mock).mockResolvedValue(RESULTS.BLOCKED)
+    ;(showAlert as jest.Mock)
+      .mockImplementationOnce((_title, _message, buttons) => buttons[1].onPress())
+      .mockImplementationOnce((_title, _message, buttons) => buttons[0].onPress())
+
+    await expect(askPermissionsUI(app, theme)).resolves.toBe(-1)
+
+    expect(showAlert).toHaveBeenLastCalledWith(
+      "permissions:permissionRequired",
+      "permissions:phoneMicrophoneDeniedMessage",
+      expect.arrayContaining([expect.objectContaining({text: "common:cancel"})]),
+    )
+    expect(request).not.toHaveBeenCalled()
+    expect(openSettings).not.toHaveBeenCalled()
+  })
+
+  it("stops requesting other miniapp permissions after microphone denial", async () => {
+    await expect(requestPermissionsUI([PermissionFeatures.MICROPHONE, PermissionFeatures.CALENDAR])).resolves.toBe(
+      "cancelled",
+    )
+    expect(ExpoCalendar.requestCalendarPermissionsAsync).not.toHaveBeenCalled()
+    expect(showAlert).not.toHaveBeenCalled()
+  })
+
+  it("opens Settings only when explicitly selected on a later feature attempt", async () => {
+    const openSettings = jest.spyOn(Linking, "openSettings").mockResolvedValue()
+    ;(check as jest.Mock).mockResolvedValue(RESULTS.BLOCKED)
+    ;(showAlert as jest.Mock).mockImplementation((_title, _message, buttons) => buttons[1].onPress())
+
+    await expect(askPermissionsUI(app, theme)).resolves.toBe(-1)
+    expect(openSettings).toHaveBeenCalledTimes(1)
+    expect(request).not.toHaveBeenCalled()
+  })
+
+  it("allows the miniapp to launch after microphone permission is granted", async () => {
+    ;(showAlert as jest.Mock).mockImplementation((_title, _message, buttons) => buttons[1].onPress())
+    ;(request as jest.Mock).mockImplementation(async () => {
+      ;(check as jest.Mock).mockResolvedValue(RESULTS.GRANTED)
+      return RESULTS.GRANTED
+    })
+
+    await expect(askPermissionsUI(app, theme)).resolves.toBe(1)
+    await expect(checkPermissionsUI(app)).resolves.toEqual([])
   })
 })

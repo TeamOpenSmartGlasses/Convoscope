@@ -558,6 +558,8 @@ const en = {
     appsCount_other: "{{count}} Apps",
   },
   permissions: {
+    phoneMicrophoneDeniedMessage:
+      "This feature needs access to your phone microphone. You can enable it in Settings, or cancel and continue using the Mentra App without this feature.",
     backgroundLocationPermissionRequiredMessage:
       'MentraOS needs access to your location when the app is in the background to provide location-based features. On the next screen, select Location, then select "Always" instead of "While Using the App"',
     openSettings: "Open Settings",

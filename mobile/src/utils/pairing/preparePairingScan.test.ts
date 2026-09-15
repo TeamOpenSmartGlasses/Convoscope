@@ -49,9 +49,23 @@ describe("preparePairingScan", () => {
 
     expect(checkConnectivityRequirementsUI).toHaveBeenCalledTimes(1)
     expect(requestFeaturePermissions).toHaveBeenNthCalledWith(1, PermissionFeatures.BLUETOOTH)
-    expect(requestFeaturePermissions).toHaveBeenNthCalledWith(2, PermissionFeatures.MICROPHONE)
+    expect(requestFeaturePermissions).toHaveBeenCalledTimes(1)
     expect(engine.miniapps.stopAll).toHaveBeenCalledTimes(1)
   })
+
+  it.each(["Mentra Live", "Even Realities G1", "Simulated Glasses"])(
+    "allows iOS pairing for %s without phone microphone access",
+    async (model) => {
+      ;(requestFeaturePermissions as jest.Mock).mockImplementation(
+        async (feature) => feature !== PermissionFeatures.MICROPHONE,
+      )
+
+      await expect(preparePairingScan(model)).resolves.toBe(true)
+
+      expect(requestFeaturePermissions).not.toHaveBeenCalledWith(PermissionFeatures.MICROPHONE)
+      expect(showAlert).not.toHaveBeenCalled()
+    },
+  )
 
   it("does not stop miniapps or continue when connectivity is unavailable", async () => {
     ;(checkConnectivityRequirementsUI as jest.Mock).mockResolvedValue(false)
@@ -73,6 +87,24 @@ describe("preparePairingScan", () => {
       [{text: "common:ok"}],
     )
     expect(engine.miniapps.stopAll).not.toHaveBeenCalled()
+  })
+
+  it("still stops Android pairing when microphone permission is denied", async () => {
+    Object.defineProperty(Platform, "OS", {value: "android", configurable: true})
+    Object.defineProperty(Platform, "Version", {value: 33, configurable: true})
+    const requestMultiple = jest.spyOn(PermissionsAndroid, "requestMultiple").mockResolvedValue({
+      [PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN]: PermissionsAndroid.RESULTS.GRANTED,
+      [PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT]: PermissionsAndroid.RESULTS.GRANTED,
+      [PermissionsAndroid.PERMISSIONS.BLUETOOTH_ADVERTISE]: PermissionsAndroid.RESULTS.GRANTED,
+    } as Awaited<ReturnType<typeof PermissionsAndroid.requestMultiple>>)
+    ;(requestFeaturePermissions as jest.Mock).mockImplementation(
+      async (feature) => feature !== PermissionFeatures.MICROPHONE,
+    )
+
+    await expect(preparePairingScan("Mentra Live")).resolves.toBe(false)
+    expect(engine.miniapps.stopAll).not.toHaveBeenCalled()
+    expect(requestFeaturePermissions).not.toHaveBeenCalledWith(PermissionFeatures.LOCATION)
+    requestMultiple.mockRestore()
   })
 
   it("preserves the Android permission order before checking connectivity", async () => {

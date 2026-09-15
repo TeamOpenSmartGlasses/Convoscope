@@ -190,7 +190,8 @@ describe("pairing scan screen", () => {
     setPlatformOS(originalPlatformOS)
   })
 
-  it("starts a compatible-device search and routes Mentra Live through btclassic on iOS", async () => {
+  it("routes Mentra Live through btclassic on iOS even without phone microphone permission", async () => {
+    ;(requestFeaturePermissions as jest.Mock).mockResolvedValue(false)
     useCoreStore.setState({
       searchResults: [
         {id: "a", model: "Mentra Live", name: "MENTRA_LIVE_BLE_001", address: "a"},
@@ -217,6 +218,8 @@ describe("pairing scan screen", () => {
         deviceName: "MENTRA_LIVE_BLE_001",
       })
     })
+
+    expect(requestFeaturePermissions).not.toHaveBeenCalled()
 
     // Two-phase identity: picking a device must NOT write the default identity —
     // the scan marks the model pending and the native layer promotes on success.
