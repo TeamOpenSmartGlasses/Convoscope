@@ -297,6 +297,10 @@ jobs:
 
       - name: Setup Android SDK for APK verification
         uses: android-actions/setup-android@v3
+        with:
+          # The action's default list includes the retired `tools` package,
+          # which no longer downloads; Gradle fetches the rest it needs.
+          packages: platform-tools
 
       - name: Restore isolated ASG Gradle cache
         if: steps.existing-asg.outputs.exists != 'true'
