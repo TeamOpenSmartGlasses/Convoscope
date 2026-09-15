@@ -1,7 +1,7 @@
 import {act, render} from "@testing-library/react-native"
 import {AppState, type AppStateStatus} from "react-native"
 
-import WebSplash from "./web-splash"
+import WebSplash from "@/app/auth/web-splash"
 
 const mockGoBack = jest.fn()
 const mockProcessUrl = jest.fn()
