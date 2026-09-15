@@ -1,6 +1,6 @@
 # No-glasses routine — English checklist
 
-This is the Step 1 specification for the real Mentra App on an Apple Silicon Mac, with no glasses connected. The first complete deterministic replay passed all **68 actions and checks** on September 15, 2026. Final revision qualification is tracked in [README.md](README.md).
+This is the Step 1 specification for the real Mentra App on an Apple Silicon Mac, with no glasses connected. The compiled routine contains **70 actions and checks**, with three consecutive deterministic passes on September 15, 2026. Exact run evidence is tracked in [README.md](README.md).
 
 The exact executable order and expected outcome of every action are in [COMPILED-ROUTINE.md](COMPILED-ROUTINE.md), generated from `flows/no-glasses.ts` with `bun run tools/mentra-e2e/run.ts describe`. The broader checklist below retains the original coverage IDs. Replay starts signed in on English, unpaired home, exercises navigation first, then logs out, validates authentication, signs in again, and restores home. Credentials are supplied at runtime. Each executed action has a screenshot and video chapter.
 

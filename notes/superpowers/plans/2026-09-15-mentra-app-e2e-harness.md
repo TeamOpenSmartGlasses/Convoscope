@@ -30,16 +30,16 @@ English checklist: [ROUTINE.md](../../../tools/mentra-e2e/ROUTINE.md).
 - [x] Finish all required English walkthrough steps and encode the observed behavior.
 - [x] Qualify recording reattachment after normal app relaunch and fixture cleanup.
 - [ ] Verify the HTML chapter viewer in a browser and final screenshot/video timing across a complete run. Browser automation rejected opening the local file under its URL policy; no workaround was attempted.
-- [ ] Qualify three complete no-glasses replays with no model calls or manual corrections.
+- [x] Qualify three complete no-glasses replays with no model calls or manual corrections.
 - [ ] Complete failure-path coverage for permission denial, target ambiguity and cleanup.
 
 ## Current state and remaining qualification
 
 The real local Release build runs through an immutable outer Mac wrapper with its signed contents unchanged. Its executable and bundled JavaScript are verified against the local build manifest. The first complete 68-step replay passed in 98.4 seconds, with 68 PNG/AX pairs and two successful relaunches. The current 70-step routine adds verified all-apps page scrolling. The app's all-apps list also now honors its existing platform exclusion policy for Mentra Call.
 
-- Finish clean-source build and three complete replays of the final code.
-- Exercise deliberate failure and separate cleanup evidence.
-- Inspect final artifacts and update PR #4069.
+- Clean-source build and three complete replays passed; README records all runs and matching app/harness hashes.
+- Deliberate missing-target failure and separate cleanup evidence passed; native rejection checks and a real recording interruption were also verified.
+- Final MP4/PNG/AX/chapter checks passed for all 210 executed steps. PR #4069 includes the results and representative screenshots.
 - Browser chapter interaction remains unverified because the browser tool rejected the local file URL. Do not use another surface or localhost as a workaround.
 - Fresh OS permission dialogs, actual permission denial, and a headless/second Mac are provisioning qualification gaps; do not reset the current machine's TCC database to manufacture them.
 
@@ -60,4 +60,4 @@ The first Mac lane requires reproducible semantic actions, meaningful assertions
 
 The first clean-build qualification attempt was interrupted when the user moved Mentra between displays. The old display crop lost the target, and position-constrained recovery failed. That run remains incomplete (`2026-09-15T23-09-13-256Z-no-glasses-b4a4ef`). The recorder now uses window-independent capture and temporarily parks on an empty allowlist across relaunch. A 14-step restore run, including three relaunches, passed with the new mechanism (`2026-09-15T23-15-01-836Z-restore-unpaired-257191`); its 25.08-second video and screenshots passed independent artifact checks. Position changes are allowed, size changes remain explicit failures, and human focus changes are recorded without automatically blaming the harness.
 
-A complete clean-build 70-step replay passed in 95.846667 seconds (`2026-09-15T23-17-28-530Z-no-glasses-55881c`), with 70 screenshot/AX pairs. No step recorded Mentra as foreground. A later repetition exposed the disk-pressure capture termination described above. After adding liveness checks, seven-step navigation and idle-screen recording probes passed; a real system-stopped capture failed immediately. About 4 GiB was recovered from this task's generated Xcode caches. Further qualification reached a locked desktop, so no routine actions ran. The runner now identifies that precondition explicitly. Three consecutive final-revision full passes remain pending an unlocked desktop.
+A complete clean-build 70-step replay passed in 95.846667 seconds (`2026-09-15T23-17-28-530Z-no-glasses-55881c`), with 70 screenshot/AX pairs. No step recorded Mentra as foreground. A later repetition exposed the disk-pressure capture termination described above. After adding liveness checks, seven-step navigation and idle-screen recording probes passed; a real system-stopped capture failed immediately. About 4 GiB was recovered from this task's generated Xcode caches. Further qualification reached a locked desktop, so no routine actions ran. The runner now identifies that precondition explicitly. After the user unlocked the desktop, three consecutive final-code runs passed: `2026-09-15T23-34-29-745Z-no-glasses-0d7ee5` (90.998333 seconds), `2026-09-15T23-36-01-585Z-no-glasses-2cdbc6` (93.303333 seconds), and `2026-09-15T23-37-35-919Z-no-glasses-e9b5c0` (90.773333 seconds). All three share the same harness, executable and JavaScript hashes; all 210 executed steps passed independent evidence checks. No step recorded Mentra as foreground. Browser chapter interaction and fresh-machine provisioning remain unqualified.

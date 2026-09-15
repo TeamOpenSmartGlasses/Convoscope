@@ -4,7 +4,7 @@ Start with the [English coverage checklist](ROUTINE.md), [exact compiled routine
 
 This harness drives the real iOS app on an Apple Silicon Mac. A Swift helper invokes native accessibility actions; Bun executes typed steps with zero model calls. Every executed step saves a screenshot, accessibility snapshot, English instruction and timestamp in a continuous MP4. The static report lets a person search descriptions and jump to the corresponding video moment.
 
-The complete **70-step** replay passed in **95.8 seconds** on a clean local Release build. A subsequent repetition caught a capture stream stopping; that run remains incomplete. The recorder now rejects stopped or stale capture evidence. Three consecutive repetitions of the final revision are still required.
+Three consecutive **70-step** replays passed in **91.0, 93.3 and 90.8 seconds** on the same clean local Release build and identical harness code. All 210 screenshots and accessibility snapshots, three MP4s and their chapter timestamps passed independent artifact checks, including frame liveness. Each replay used zero model calls; no step recorded Mentra as foreground. Earlier failed runs remain preserved.
 
 ## Build and run
 
@@ -59,6 +59,9 @@ Evidence version 2 records the latest window-server observation time for every s
 
 | Run folder | Result |
 | --- | --- |
+| `2026-09-15T23-34-29-745Z-no-glasses-0d7ee5` | Qualification 1: 70 passed, 3 exclusions, 90.998333-second video; all evidence and frame-liveness checks passed. |
+| `2026-09-15T23-36-01-585Z-no-glasses-2cdbc6` | Qualification 2: 70 passed, 3 exclusions, 93.303333-second video; all evidence and frame-liveness checks passed. |
+| `2026-09-15T23-37-35-919Z-no-glasses-e9b5c0` | Qualification 3: 70 passed, 3 exclusions, 90.773333-second video; all evidence and frame-liveness checks passed. |
 | `2026-09-15T23-17-28-530Z-no-glasses-55881c` | Complete 70-step replay: 70 passed, 3 declared exclusions, zero model calls, 95.846667-second H.264 video. Clean app source `f336af5`; harness `cba7332`. No step recorded Mentra as the foreground app. |
 | `2026-09-15T23-19-05-171Z-no-glasses-bb784f` | Incomplete repetition: capture stopped and old frames were reused; a later Back action also failed. Preserved as incomplete. This exposed the missing stream delegate and freshness check. |
 | `2026-09-15T22-54-39-726Z-no-glasses-c34c5b` | First full replay: 68 passed, 3 declared exclusions, zero model calls; 68 PNG/AX pairs; 98.376667-second H.264 video, 576×1090. Both relaunches passed. Dirty local build recorded honestly. |
@@ -66,6 +69,8 @@ Evidence version 2 records the latest window-server observation time for every s
 | `2026-09-15T23-01-08-675Z-discovery-ce816d` | All-apps open, scroll down/up and close verified through accessibility. |
 | `2026-09-15T22-36-38-571Z-discovery-9639da` and `2026-09-15T22-48-36-217Z-discovery-1d68b3` | Recorded discovery, including failed expectations and the native serializer failure. Preserved as failures, not relabeled as passes. |
 | `2026-09-15T21-43-42-280Z-accessibility-preflight-045bcd` | Old TestFlight build correctly failed the new capsule contract; nonzero exit and finalized screenshot/video evidence. |
+
+The three qualification runs share harness SHA-256 `5e654b1779569a72384aea5e33cfdd2efe92fdf93ab23b9637fae5009ae3666e`, the `f336af5` clean app build and identical executable/JavaScript hashes. They ran after harness commit `2105697`; the only intervening commit added the representative walkthrough image outside the harness. Later documentation updates do not change replay code. Three passes establish an initial baseline, not a statistical reliability guarantee.
 
 Browser automation verification of the local HTML viewer remains pending: the browser tool rejected its local-file URL under its security policy. No alternate browser or localhost workaround was used. MP4 metadata, screenshots and timestamp consistency are checked independently; this does not claim that browser seeking was manually verified.
 
