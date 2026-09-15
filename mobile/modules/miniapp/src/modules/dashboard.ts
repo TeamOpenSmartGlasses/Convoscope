@@ -2,8 +2,8 @@
  * @fileoverview DashboardAPI — deferred dashboard rendering surface.
  *
  * setContent warns once per instance and sends a fire-and-forget message.
- * The local runtime does not render it or reply because it has no request ID.
- * Requests with an ID receive NOT_IMPLEMENTED from the runtime.
+ * The local runtime does not implement dashboard rendering. It sends no reply
+ * without a request ID; requests with an ID receive NOT_IMPLEMENTED.
  */
 
 import {MiniappRequestType} from "../protocol"
