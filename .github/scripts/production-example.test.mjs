@@ -39,13 +39,14 @@ const marker = (sequence) => ({name: `mentra-build-number-${n(sequence)}.json`})
 test("allocates the example's build number as the family's next sequence", () => {
   assert.equal(allocateExampleBuildNumber({betaPlan, familyAssets: [marker(212)]}), n(213))
   assert.equal(allocateExampleBuildNumber({betaPlan, familyAssets: [marker(212), marker(300)]}), n(301))
-  // ASG client pairs live in their own release and never count here.
+  // An ASG client pair of the family (the caller passes the shared ASG
+  // release's assets too) holds its number like a marker does.
   assert.equal(
     allocateExampleBuildNumber({
       betaPlan,
       familyAssets: [marker(212), {name: `mentra-live-asg-${n(400)}-${"a".repeat(64)}.apk`}],
     }),
-    n(213),
+    n(401),
   )
   assert.throws(() => allocateExampleBuildNumber({betaPlan, familyAssets: []}), /does not record the selected beta/)
   assert.throws(

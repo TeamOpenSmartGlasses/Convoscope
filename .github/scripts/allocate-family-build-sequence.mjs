@@ -1,8 +1,12 @@
 #!/usr/bin/env node
 // Allocates the one build number a coordinated run, a production promotion or
 // the production example uses for its family: the next free sequence above
-// every number already recorded in the family's build container as a
-// `mentra-build-number-<code>.json` marker. Sequences restart at 1 for every
+// every number already recorded for the family, either as a
+// `mentra-build-number-<code>.json` marker in the family's build container or
+// as an ASG client pair `mentra-live-asg-<code>-<fingerprint>.(apk|json)` in
+// the shared ASG release (numbers taken before markers existed, seen on the
+// 3.2.0 family: runs 34904296139 and 34904687939 collided with them). The
+// caller passes the assets of both releases. Sequences restart at 1 for every
 // family; see notes/superpowers/specs/2026-09-14-family-build-numbers.md.
 //
 // A marker names the owner of the reservation (a coordinated run, a promotion
@@ -18,6 +22,7 @@ import {fileURLToPath} from "node:url"
 import {BUILD_NUMBER_RELEASE_SEQUENCE_LIMIT, familyBuildNumberWindow} from "./release-family.mjs"
 
 const MARKER_PATTERN = /^mentra-build-number-(\d+)\.json$/
+const ASG_PAIR_PATTERN = /^mentra-live-asg-(\d+)-[0-9a-f]{64}\.(?:apk|json)$/
 const OWNER_PATTERN = /^[a-z][a-z0-9-]*:[A-Za-z0-9._:-]{1,120}$/
 
 export function markerAssetName(buildNumber) {
@@ -34,7 +39,7 @@ export function recordedFamilyBuildNumbers(assets, baseVersion) {
   const window = familyBuildNumberWindow(baseVersion)
   const numbers = new Set()
   for (const asset of assets) {
-    const match = MARKER_PATTERN.exec(asset?.name ?? "")
+    const match = MARKER_PATTERN.exec(asset?.name ?? "") ?? ASG_PAIR_PATTERN.exec(asset?.name ?? "")
     if (!match) continue
     const code = Number(match[1])
     if (code >= window.first && code <= window.last) numbers.add(code)
