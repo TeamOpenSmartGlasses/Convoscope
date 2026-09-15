@@ -606,7 +606,11 @@ itself is not copied. It stops once the new candidates are uploaded, because
 candidate acceptance is the verification of the correction: install the exact
 builds, then `attest` (or `defer`) `production-mobile-candidate-acceptance` and
 run `next` to submit. Interrupted? Run the same command again; every step is
-decided from the latest promotion record.
+decided from the latest promotion records, including a container that
+preparation allocated without a state record yet. Each dispatched run is
+identified as the single new run of that workflow by your login; if two appear
+(someone else, or a second terminal, dispatched the same workflow at the same
+moment) the command stops rather than adopt the wrong run.
 
 On App Store Connect the rejected build stays attached to the version until the
 submission replaces it; nothing needs detaching by hand. On Google Play the new

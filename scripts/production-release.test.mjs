@@ -17,6 +17,7 @@ import {
   validateExampleOptions,
   validatePackagesOptions,
   carriedDeferralReason,
+  RECORD_COMMANDS,
   resubmitStep,
   selectDispatchedRun,
 } from "./production-release.mjs"
@@ -377,10 +378,28 @@ test("resubmit decides every step from the latest and previous attempts and stop
 })
 
 test("resubmit adopts only the one run its own dispatch started", () => {
-  const run = (id) => ({databaseId: id, createdAt: "2026-09-15T20:00:00Z", url: `https://example.com/runs/${id}`})
-  assert.equal(selectDispatchedRun([run(1)], [run(1)]), null)
-  assert.deepEqual(selectDispatchedRun([run(1)], [run(2), run(1)]), run(2))
-  assert.throws(() => selectDispatchedRun([run(1)], [run(3), run(2), run(1)]), /More than one new dispatch/)
+  const dispatchedAt = "2026-09-15T20:00:00Z"
+  const run = (id, createdAt = "2026-09-15T20:00:10Z") => ({
+    databaseId: id,
+    createdAt,
+    url: `https://example.com/runs/${id}`,
+  })
+  assert.equal(selectDispatchedRun([run(1)], [run(1)], dispatchedAt), null)
+  assert.deepEqual(selectDispatchedRun([run(1)], [run(2), run(1)], dispatchedAt), run(2))
+  assert.throws(
+    () => selectDispatchedRun([run(1)], [run(3), run(2), run(1)], dispatchedAt),
+    /More than one new dispatch/,
+  )
+  // A run this login started earlier (another terminal, an interrupted
+  // invocation) that only becomes visible now is older than the dispatch.
+  const stale = run(9, "2026-09-15T19:50:00Z")
+  assert.equal(selectDispatchedRun([], [stale], dispatchedAt), null)
+  assert.deepEqual(selectDispatchedRun([], [stale, run(2)], dispatchedAt), run(2))
+})
+
+test("resubmit never depends on the common record load", () => {
+  assert.equal(RECORD_COMMANDS.includes("resubmit"), false)
+  assert.equal(RECORD_COMMANDS.includes("abort"), true)
 })
 
 test("the documented boolean flags parse without a value", () => {

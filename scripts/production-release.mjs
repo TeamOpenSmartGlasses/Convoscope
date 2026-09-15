@@ -465,14 +465,21 @@ function sleepSeconds(seconds) {
 // login that was not listed before the dispatch. Two new ones (another
 // operator dispatching the same workflow at the same moment) are ambiguous
 // and stop the command rather than adopt a stranger's run.
-export function selectDispatchedRun(before, after) {
+export function selectDispatchedRun(before, after, dispatchedAt) {
   const known = new Set(before.map((run) => run.databaseId))
-  const fresh = after.filter((run) => !known.has(run.databaseId))
+  const cutoff = new Date(dispatchedAt).getTime() - DISPATCH_CLOCK_SKEW_SECONDS * 1_000
+  const fresh = after.filter((run) => !known.has(run.databaseId) && new Date(run.createdAt).getTime() >= cutoff)
   if (fresh.length > 1) {
     throw new Error(`More than one new dispatch is running: ${fresh.map((run) => run.url).join(", ")}`)
   }
   return fresh[0] ?? null
 }
+
+// A run created before this dispatch (minus clock skew) is never adopted, and
+// after the first sighting the listing is watched a little longer so a second
+// new run of this login, surfacing late, is caught as an ambiguity.
+const DISPATCH_CLOCK_SKEW_SECONDS = 60
+const DISPATCH_SETTLE_POLLS = 3
 
 function listDispatches(workflow, login) {
   return ghJson([
@@ -496,11 +503,18 @@ function listDispatches(workflow, login) {
 function dispatchAndWait(workflow, fields) {
   const login = ghJson(["api", "user"]).login
   const before = listDispatches(workflow, login)
+  const dispatchedAt = new Date().toISOString()
   dispatch(workflow, fields)
   let run = null
-  for (let attempt = 0; attempt < 24 && !run; attempt += 1) {
+  let settle = 0
+  for (let attempt = 0; attempt < 24 + DISPATCH_SETTLE_POLLS && settle < DISPATCH_SETTLE_POLLS; attempt += 1) {
     sleepSeconds(5)
-    run = selectDispatchedRun(before, listDispatches(workflow, login))
+    const seen = selectDispatchedRun(before, listDispatches(workflow, login), dispatchedAt)
+    if (seen && run && seen.databaseId !== run.databaseId) {
+      throw new Error(`More than one new dispatch is running: ${run.url}, ${seen.url}`)
+    }
+    run = seen ?? run
+    if (run) settle += 1
   }
   if (!run) throw new Error(`${workflow} did not start within two minutes of the dispatch`)
   console.log(`Waiting for ${run.url}`)
@@ -875,6 +889,11 @@ async function resubmit({releaseIdentity, betaIdentity, reason, mergeAdmin}) {
   throw new Error("resubmit took more steps than a promotion has; inspect the promotion record")
 }
 
+// Commands that load the latest promotion record before they run. resubmit
+// is not one of them: it decides from the records itself and resumes a
+// container that has no record yet.
+export const RECORD_COMMANDS = Object.freeze(["status", "next", "attest", "defer", "release", "advance", "abort"])
+
 async function main(argv = process.argv.slice(2)) {
   const {command, options, positionals} = parseCliArgs(argv)
   if (!command || command === "help" || command === "--help" || positionals.length > 0) {
@@ -931,6 +950,29 @@ async function main(argv = process.argv.slice(2)) {
       release: request.beta_identity.replace(/-beta\.\d+$/, ""),
     })
     dispatch("production-release-example.yml", request)
+    return
+  }
+
+  if (command === "resubmit") {
+    // Decided from the promotion records inside resubmit itself: a container
+    // prepare allocated without a state record is one of its resume cases.
+    const releaseIdentity = requireVersion(options.release)
+    if (!BETA_PATTERN.test(options.beta || "")) throw commandError("resubmit requires --beta X.Y.Z-beta.N")
+    if (!options.reason) throw commandError("resubmit requires --reason TEXT")
+    if (!options.beta.startsWith(`${releaseIdentity}-beta.`)) {
+      throw commandError(`${options.beta} is not a beta of ${releaseIdentity}`)
+    }
+    verifyCheckoutForPromotion()
+    await confirmEffect(
+      `This aborts the current ${releaseIdentity} attempt, promotes ${options.beta} to main, starts the next attempt and runs it until the new candidates are uploaded. It stops before candidate acceptance and store submission.`,
+      {...options, release: releaseIdentity},
+    )
+    await resubmit({
+      releaseIdentity,
+      betaIdentity: options.beta,
+      reason: options.reason,
+      mergeAdmin: Boolean(options["merge-admin"]),
+    })
     return
   }
 
@@ -1012,26 +1054,6 @@ async function main(argv = process.argv.slice(2)) {
       {...options, release: releaseIdentity},
     )
     deferCheck({loaded, releaseIdentity, check: options.check, reason: options.reason, wait: false})
-    return
-  }
-
-  if (command === "resubmit") {
-    if (!BETA_PATTERN.test(options.beta || "")) throw commandError("resubmit requires --beta X.Y.Z-beta.N")
-    if (!options.reason) throw commandError("resubmit requires --reason TEXT")
-    if (!options.beta.startsWith(`${releaseIdentity}-beta.`)) {
-      throw commandError(`${options.beta} is not a beta of ${releaseIdentity}`)
-    }
-    verifyCheckoutForPromotion()
-    await confirmEffect(
-      `This aborts the current ${releaseIdentity} attempt, promotes ${options.beta} to main, starts the next attempt and runs it until the new candidates are uploaded. It stops before candidate acceptance and store submission.`,
-      {...options, release: releaseIdentity},
-    )
-    await resubmit({
-      releaseIdentity,
-      betaIdentity: options.beta,
-      reason: options.reason,
-      mergeAdmin: Boolean(options["merge-admin"]),
-    })
     return
   }
 
