@@ -670,15 +670,12 @@ NativeBluetoothSdkModule.warmUpCamera = function (params: WarmUpCameraParams) {
   return nativeWarmUpCamera(warmUpCameraParamsForNative(params) as unknown as WarmUpCameraParams)
 }
 
-const nativeStartStream = NativeBluetoothSdkModule.startStream.bind(NativeBluetoothSdkModule)
+const nativeStartStream = bindNativeMethod<(params: StreamStartRequest) => Promise<StreamStatusEvent>>(
+  NativeBluetoothSdkModule as unknown as Record<string, unknown>,
+  "startStream",
+)
 NativeBluetoothSdkModule.startStream = function (params: StreamStartRequest) {
   return nativeStartStream(streamRequestParamsForNative(params) as unknown as StreamStartRequest)
-}
-
-const nativeStartExternallyManagedStream =
-  NativeBluetoothSdkModule.startExternallyManagedStream.bind(NativeBluetoothSdkModule)
-NativeBluetoothSdkModule.startExternallyManagedStream = function (params: StreamStartRequest) {
-  return nativeStartExternallyManagedStream(streamRequestParamsForNative(params) as unknown as StreamStartRequest)
 }
 
 export default NativeBluetoothSdkModule
