@@ -170,6 +170,10 @@ extension Driver {
       try await Task.sleep(for: .milliseconds(20))
     }
     guard observer.state().1 else { throw DriverFailure("Video finalization timed out") }
-    try emitJSON(["event": "finished", "duration": recording.recordedDuration.seconds, "bytes": recording.recordedFileSize])
+    // SCRecordingOutput's progress duration can be rounded to whole seconds.
+    // Use the finalized MP4 timeline so late chapter/screenshot times stay valid.
+    let asset = AVURLAsset(url: URL(fileURLWithPath: path))
+    let duration = try await asset.load(.duration).seconds
+    try emitJSON(["event": "finished", "duration": duration, "bytes": recording.recordedFileSize])
   }
 }

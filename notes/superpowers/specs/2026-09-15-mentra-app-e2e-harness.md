@@ -3,13 +3,17 @@ status: active
 owner: Philippe
 ---
 
-# Mentra App end-to-end harness: TestFlight on Mac
+# Mentra App end-to-end harness: iOS app on Mac
 
 ## Decision
 
-Use the installed TestFlight app as the system under test. Discover its behavior with native computer control, then turn the verified routine into **typed TypeScript tests running under Bun, backed by a small Swift macOS accessibility driver**. Normal replay must run from a terminal with **zero model calls**.
+Use the real iOS app on Apple Silicon as the system under test, initially installed from TestFlight and then built locally to verify our accessibility fixes. Discover its behavior with native computer control, then turn the verified routine into **typed TypeScript tests running under Bun, backed by a small Swift macOS accessibility driver**. Normal replay must run from a terminal with **zero model calls**.
 
-The English routine, standalone Swift/Bun prototype, continuous video and step viewer are implemented. The original seven-step login/validation proof passed twice from a terminal. Authenticated discovery exposed missing accessibility semantics; this branch now fixes those controls in the app and removes coordinate/visual input fallbacks. The stricter driver and complete routine still need qualification against a build containing these fixes.
+For app iteration, `bun ios:mac` builds the existing iOS target for Xcode's **My Mac (Designed for iPhone/iPad)** destination. Release is the default because bundled JavaScript makes replay independent of Metro and matches the packaged-app execution model. Debug plus Metro remains available for development. This avoids TestFlight's upload/distribution delay while keeping the iOS runtime; it does not introduce Catalyst or a simulator. The current PR CI provides an unsigned compile check, not an installable IPA. A local development-signed build is therefore the direct path. See the [setup guide](../../../tools/mentra-e2e/SETUP.md) for provisioning and reproducible commands.
+
+Record the running executable and JavaScript hashes. When supplied with a local build manifest, the runner checks those hashes before any action and records source provenance only after they match. A dirty local build remains explicitly dirty. During relaunch, TestFlight needs its installed outer wrapper; accept that wrapper only when its executable and JavaScript match the current process, so another installed build cannot be substituted silently.
+
+The English routine, standalone Swift/Bun prototype, continuous video and step viewer are implemented. The original seven-step login/validation proof passed twice from a terminal. Authenticated discovery exposed missing accessibility semantics; this branch now fixes those controls in the app and removes coordinate/visual input fallbacks. A local signed Release build now exposes these controls, and the first full 68-step terminal replay passed in 98.4 seconds. The current 70-step revision adds verified all-apps scrolling; README records its qualification evidence.
 
 The existing Maestro tests do not constrain this choice. The deciding factors are the actual execution target, reliable selectors, independent replay, and how much infrastructure we need to maintain.
 
@@ -55,7 +59,7 @@ Passing this suite establishes behavior of this binary on this Mac. It does not 
 
 ### Discovery and the first English walkthrough
 
-Use the available native computer-control interface (`cua_repl`) to:
+The initial probe used the native computer-control interface (`cua_repl`). After the shared-desktop requirement, discovery switched to the same Swift accessibility driver used for replay, through its recorded `discover` command, to:
 
 1. Attach to the running app and inspect its macOS accessibility tree.
 2. Identify controls by their current meaning, role, placeholder, and surrounding screen.
@@ -63,7 +67,7 @@ Use the available native computer-control interface (`cua_repl`) to:
 4. Inspect the resulting tree and screenshot after each action.
 5. Save the observation, assertion, screenshot, and successful action into the run's evidence.
 
-This has already worked for the start → login → start probe. It proves that the app is externally discoverable and controllable. It does **not** prove which low-level click mechanism the computer-control tool used, that `AXPress` works for every control, or that a separately permissioned executable can do the same thing.
+This has already worked for the start → login → start probe. That initial probe proved external discoverability. Subsequent recorded Swift-driver discovery and the complete terminal pass proved AXPress/AXValue operation for the routine without global input.
 
 Element indices displayed by the discovery tool are transient. For example, **Log In** changed from index 12 to 13 after returning to the same screen. Store semantic selectors, never those indices, in durable tests.
 
@@ -85,7 +89,7 @@ Require a working accessibility press action. A control without one fails with a
 
 A standalone process needs its own working macOS Accessibility and screen-capture permissions. The existing computer-control tool's access does not establish that access for a new executable. Include an explicit permission preflight and a stable driver installation/signing identity. Report missing permission as setup failure before clicking anything; do not change system permission settings silently.
 
-The Mac must be awake and unlocked with the Mentra window open. Only one run owns that window at a time. The user may work in other apps: AX actions do not move the pointer or activate Mentra. Do not move, resize, minimize or close the target during a recording. Relaunch uses `activates = false`; its capture reattachment still requires qualification. A dedicated Mac Mini remains the simplest permanent test station.
+The Mac must be awake and unlocked with the Mentra window open. Only one run owns that window at a time. The user may work in other apps: AX actions do not move the pointer or activate Mentra. Do not move, resize, minimize or close the target during a recording. Relaunch uses `activates = false`; an isolated lifecycle probe now passes on dev.235 with capture reattachment and Codex retaining desktop focus. Both relaunches also passed in the complete local-build routine. A dedicated Mac Mini remains the simplest permanent test station.
 
 ## Why this choice, and when to change it
 
@@ -136,7 +140,7 @@ Selector rules:
 4. If a control is anonymous, cannot be activated through accessibility, or disappears behind a gesture-only wrapper, stop that scenario, preserve evidence, fix the app and install the rebuilt version. Do not fall back to element bounds, screen positions, OCR or screenshots.
 5. Accessibility actions call the same product handlers as ordinary touch. Do not expose test-only navigation, secret routes or a test backend that bypasses product behavior.
 
-Current source fixes cover capsule minimize/close, shared Back, home grid launchers, all-apps open/search/clear/dismiss, and running-miniapp open/select/dismiss controls. See [the accessibility contract](../../../tools/mentra-e2e/ACCESSIBILITY.md). The installed dev.235 binary predates these changes; missing new identifiers are a build prerequisite, not permission to work around them.
+Current source fixes cover capsule minimize/close, shared Back, home grid launchers, all-apps open/search/clear/dismiss, and running-miniapp open/select/dismiss controls. See [the accessibility contract](../../../tools/mentra-e2e/ACCESSIBILITY.md). The old dev.235 binary predates these changes. The local Release build has been exercised with the new identifiers; an older binary correctly fails their contract.
 
 Wait for expected state with bounded polling, initially up to 10 seconds for local navigation and 30 seconds for network-dependent screens. Record actual timings and adjust from evidence. Avoid fixed sleeps as synchronization. Retry observation while waiting, not state-changing actions whose completion is uncertain.
 
@@ -144,7 +148,7 @@ A replay failure stops the affected scenario, captures evidence, and reports the
 
 ## English routine
 
-The complete numbered Step 1 checklist is in [ROUTINE.md](../../../tools/mentra-e2e/ROUTINE.md), with expected results and current verification status. Keep the stable step IDs when translating it to executable flows. It is partially observed; a full no-glasses replay is not qualified yet.
+The complete numbered Step 1 checklist is in [ROUTINE.md](../../../tools/mentra-e2e/ROUTINE.md), with expected results and current verification status. Keep the stable step IDs when translating it to executable flows. The exact executable order is generated into COMPILED-ROUTINE.md. A first full replay passed; final revision qualification is recorded in README.
 
 ## Screenshots, reports and secrets
 

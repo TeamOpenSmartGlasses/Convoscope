@@ -39,6 +39,8 @@ export default function AllAppsGridSheet({bottomSheetRef}: {bottomSheetRef: Reac
         disappearsOnIndex={-1}
         appearsOnIndex={0}
         accessible={false}
+        accessibilityRole="none"
+        accessibilityLabel=""
         pressBehavior="none">
         <Pressable
           accessible={isOpen}
@@ -49,6 +51,11 @@ export default function AllAppsGridSheet({bottomSheetRef}: {bottomSheetRef: Reac
           testID="home.allApps.close"
           className="absolute inset-0"
           onPress={() => bottomSheetRef.current?.close()}
+          onAccessibilityTap={() => bottomSheetRef.current?.close()}
+          accessibilityActions={[{name: "activate"}]}
+          onAccessibilityAction={(event) => {
+            if (event.nativeEvent.actionName === "activate") bottomSheetRef.current?.close()
+          }}
         />
       </BottomSheetBackdrop>
     ),
@@ -102,6 +109,9 @@ export default function AllAppsGridSheet({bottomSheetRef}: {bottomSheetRef: Reac
   return (
     <>
       <BottomSheet
+        accessible={false}
+        accessibilityRole="none"
+        accessibilityLabel=""
         // style={{position: "relative", bottom: 0, left: 0, right: 0, top: 0, width: 500}}
         // style={{position: "absolute", bottom: 0, left: 0, right: 0, top: 0, width: 500}}
         // containerStyle={{position: "absolute", left: 0}}

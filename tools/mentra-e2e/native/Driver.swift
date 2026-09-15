@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationServices
+import CryptoKit
 import ScreenCaptureKit
 
 struct DriverFailure: Error, CustomStringConvertible {
@@ -7,6 +8,32 @@ struct DriverFailure: Error, CustomStringConvertible {
   init(_ message: String) {
     description = message
   }
+}
+
+@MainActor
+func relaunchURL(for app: NSRunningApplication) throws -> URL {
+  guard let runningURL = app.bundleURL, let running = Bundle(url: runningURL),
+        let executable = running.executableURL else { throw DriverFailure("Cannot resolve running app binary") }
+  // TestFlight launches an inner, translocated iOS bundle. Launch Services needs
+  // its outer installed wrapper; only accept it if both executable and JS match.
+  if let id = app.bundleIdentifier {
+    for installedURL in NSWorkspace.shared.urlsForApplications(withBundleIdentifier: id) {
+      let wrappedURL = installedURL.appendingPathComponent("WrappedBundle").resolvingSymlinksInPath()
+      if let installed = Bundle(url: wrappedURL), installed.bundleIdentifier == id,
+         let candidate = installed.executableURL,
+         try SHA256.hash(data: Data(contentsOf: candidate)) == SHA256.hash(data: Data(contentsOf: executable))
+      {
+        let runningJS = running.url(forResource: "main", withExtension: "jsbundle")
+        let installedJS = installed.url(forResource: "main", withExtension: "jsbundle")
+        if let runningJS, let installedJS,
+           try SHA256.hash(data: Data(contentsOf: runningJS)) == SHA256.hash(data: Data(contentsOf: installedJS))
+        {
+          return installedURL
+        }
+      }
+    }
+  }
+  return runningURL
 }
 
 func attribute(_ element: AXUIElement, _ name: String) -> CFTypeRef? {
@@ -26,6 +53,10 @@ func frameOf(_ element: AXUIElement) -> CGRect? {
   var dimensions = CGSize.zero
   guard AXValueGetValue(position as! AXValue, .cgPoint, &point),
         AXValueGetValue(size as! AXValue, .cgSize, &dimensions) else { return nil }
+  // Detached views can report infinite coordinates during navigation. They are
+  // not visible targets, and Foundation cannot serialize these values as JSON.
+  guard point.x.isFinite, point.y.isFinite, dimensions.width.isFinite,
+        dimensions.height.isFinite else { return nil }
   return CGRect(origin: point, size: dimensions)
 }
 
@@ -170,14 +201,17 @@ final class Driver {
     case "request-screen-capture":
       return ["screenCapture": CGRequestScreenCaptureAccess()]
     case "doctor":
+      let bundle = app.bundleURL.flatMap { Bundle(url: $0) }
       return ["accessibility": AXIsProcessTrusted(), "screenCapture": CGPreflightScreenCaptureAccess(), "postEvents": CGPreflightPostEventAccess(), "pid": app.processIdentifier,
               "frontmostBundleId": NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "unknown",
-              "bundleId": bundleID, "bundlePath": app.bundleURL?.path ?? "", "version": Bundle(url: app.bundleURL!)?.infoDictionary?["CFBundleShortVersionString"] ?? "unknown",
-              "build": Bundle(url: app.bundleURL!)?.infoDictionary?["CFBundleVersion"] ?? "unknown"]
+              "bundleId": bundleID, "bundlePath": app.bundleURL?.path ?? "", "version": bundle?.infoDictionary?["CFBundleShortVersionString"] ?? "unknown",
+              "executablePath": bundle?.executableURL?.path ?? "",
+              "javascriptPath": bundle?.url(forResource: "main", withExtension: "jsbundle")?.path ?? "",
+              "build": bundle?.infoDictionary?["CFBundleVersion"] ?? "unknown"]
     case "snapshot":
-      return try ["pid": app.processIdentifier, "window": frameJSON(frameOf(window()) ?? .zero), "elements": elements().map(\.data)]
+      return try ["pid": app.processIdentifier, "frontmostBundleId": NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "unknown", "window": frameJSON(frameOf(window()) ?? .zero), "elements": elements().map(\.data)]
     case "relaunch":
-      guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) ?? app.bundleURL else { throw DriverFailure("Cannot resolve installed app URL") }
+      let url = try relaunchURL(for: app)
       let originalFrame = try frameOf(window())
       guard app.terminate() else { throw DriverFailure("Target refused normal termination") }
       let deadline = Date().addingTimeInterval(8)

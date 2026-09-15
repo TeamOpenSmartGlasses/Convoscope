@@ -23,35 +23,36 @@ English checklist: [ROUTINE.md](../../../tools/mentra-e2e/ROUTINE.md).
 - [x] Add labels, IDs and accessible activation to the missing app controls; add mobile tray activation tests.
 - [x] Write Mac Mini provisioning, permission, credential, transfer and troubleshooting instructions.
 - [x] Verify the old binary fails the new capsule accessibility preflight, exits nonzero and retains screenshot/video evidence.
-- [ ] Verify app accessibility source changes in an installed build.
-- [ ] Finish all required English walkthrough steps and encode the observed behavior.
-- [ ] Qualify recording reattachment after normal app relaunch and fixture cleanup.
+- [x] Verify this Mac's Xcode iOS-on-Mac destination and valid development signing identity; add a local `bun ios:mac` build/launch command and setup instructions.
+- [x] Install isolated worktree dependencies and pass the full mobile TypeScript check; resolve the initial stale CocoaPods catalog via `pod repo update`.
+- [x] Complete and qualify the local signed Release build and background launch.
+- [x] Verify app accessibility source changes in an installed build.
+- [x] Finish all required English walkthrough steps and encode the observed behavior.
+- [x] Qualify recording reattachment after normal app relaunch and fixture cleanup.
 - [ ] Verify the HTML chapter viewer in a browser and final screenshot/video timing across a complete run. Browser automation rejected opening the local file under its URL policy; no workaround was attempted.
 - [ ] Qualify three complete no-glasses replays with no model calls or manual corrections.
 - [ ] Complete failure-path coverage for permission denial, target ambiguity and cleanup.
 
-## Current dependency
+## Current state and remaining qualification
 
-The installed app is `com.mentra.mentra`, version `3.2.0`, build `320000235` (Settings: dev.235). It predates this branch's app accessibility changes. The read-only `accessibility-preflight` suite correctly reports missing `miniapp.minimize`. Install the updated binary before qualifying those controls; do not reintroduce coordinate, glyph or visual targeting to get around it.
+The real local Release build runs through an immutable outer Mac wrapper with its signed contents unchanged. Its executable and bundled JavaScript are verified against the local build manifest. The first complete 68-step replay passed in 98.4 seconds, with 68 PNG/AX pairs and two successful relaunches. The current 70-step routine adds verified all-apps page scrolling. The app's all-apps list also now honors its existing platform exclusion policy for Mentra Call.
 
-The app is signed in, unpaired, on the empty Give Feedback form. Nothing was submitted. Real sign-in reached first-run onboarding, so the initial login suite's home assertion failed. Fixture setup reached home but its recording reattach failed. Preserve both failures as evidence; neither is a full suite pass.
+- Finish clean-source build and three complete replays of the final code.
+- Exercise deliberate failure and separate cleanup evidence.
+- Inspect final artifacts and update PR #4069.
+- Browser chapter interaction remains unverified because the browser tool rejected the local file URL. Do not use another surface or localhost as a workaround.
+- Fresh OS permission dialogs, actual permission denial, and a headless/second Mac are provisioning qualification gaps; do not reset the current machine's TCC database to manufacture them.
 
-## Next steps
+No messages, feedback, account changes, model downloads, media mutations, device scans or pairings were submitted by the routine. Signed-in unpaired home is the required final state.
 
-1. Build/install the app with the source accessibility changes. Inspect each required identifier and invoke the real action as specified in [ACCESSIBILITY.md](../../../tools/mentra-e2e/ACCESSIBILITY.md).
-2. Resume from the Feedback form via the named minimize control. Complete Speech, Privacy, Miniapp Developer Settings, all-apps search, switching, pairing cancellation, and no-glasses guard checks.
-3. Encode only verified steps. Split conditional fixtures explicitly, and keep inactive feature coverage as declared not-applicable rather than silently skipped assertions.
-4. Finish authentication validation, logout/sign-in restoration, app relaunch capture and cleanup verification.
-5. Run three complete terminal replays and bounded failure checks. Finalize the routine and README with the exact build, harness revision and retained run folders.
+## Findings fixed during the walkthrough
 
-## Validation so far
-
-- Swift helper compiles; doctor confirms Accessibility and Screen Recording permissions.
-- Seven native negative checks and one redaction test pass; two mobile tray accessibility activation tests pass.
-- Harness TypeScript type-check passes. Mobile type-check reports only an existing `mobile/app.config.ts:107` nullable-name error when Expo's generated global types are included; the file is unchanged.
-- Current preflight failure evidence: `.test-results/mentra-e2e/2026-09-15T21-43-42-280Z-accessibility-preflight-045bcd/`. H.264, 576×1090, 45 frames, 3.086667 seconds; the screenshot is readable and chapter timestamps lie inside the recording.
-- All earlier failures and discoveries remain local. Historical discovery metadata saying zero model calls describes the runner only; those sessions were agent-directed and are not unattended qualification.
+- BottomSheet grouped its descendants into one accessibility element; its backdrop's default activation hit content beneath it. Expose its children and bind the named close action explicitly.
+- Running-miniapp cards had a zero-height parent, so native accessibility omitted visible cards. Give the parent its actual card height.
+- Detached native views briefly report infinite frames during logout; exclude those frames instead of crashing JSON serialization.
+- Copied development `.env` values displayed v2.8.0 in Settings despite native v3.2.0. The local Mac build now supplies the canonical repository version to both prebuild and bundling.
+- All Apps bypassed platform exclusions and surfaced Mentra Call on iOS. Apply the existing platform policy before the user-hidden-app override.
 
 ## Completion criterion
 
-The initial harness is complete only when the full terminal routine has no model dependency, every executed step has readable evidence, behavior assertions fail correctly, fixture cleanup is verified, and all required coverage is implemented and passes. Current progress does not yet satisfy that criterion.
+The first Mac lane requires reproducible semantic actions, meaningful assertions, per-step evidence, verified cleanup, zero-model terminal replay and three successful full runs on the same final build. Keep platform/setup gaps and unverified viewer interaction explicit; neither a compile nor a historical partial run substitutes for full replay evidence.

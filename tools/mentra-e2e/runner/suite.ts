@@ -33,7 +33,7 @@ export async function waitFor(checks: Check[], timeoutMs = 10000): Promise<Snaps
       ).length
       const ok = check.absent ? count === 0 : check.count !== undefined ? count === check.count : count > 0
       if (!ok)
-        unmet = `Expected ${check.absent ? "no" : check.count ?? "at least one"} match for ${JSON.stringify(
+        unmet = `Expected ${check.absent ? "no" : (check.count ?? "at least one")} match for ${JSON.stringify(
           check.selector,
         )}${check.action ? ` exposing ${check.action}` : ""}, found ${count}`
       return !ok
@@ -60,13 +60,17 @@ export async function executeSteps(steps: Step[], context: Context, report: Repo
     const start = performance.now()
     let state: Snapshot | undefined
     let videoStart: number | undefined
+    let focusBefore: string | undefined
     try {
       videoStart = await report.video?.mark()
       state = await snapshot()
+      focusBefore = state.frontmostBundleId
       const action = typeof step.action === "function" ? step.action(context, state) : step.action
       if (action) await command(action)
       if (action?.op === "relaunch") await report.video?.reattach()
       state = await waitFor(typeof step.checks === "function" ? step.checks(context) : step.checks, step.timeoutMs)
+      if (focusBefore !== "com.mentra.mentra" && state.frontmostBundleId === "com.mentra.mentra")
+        throw new Error("Mentra became the foreground app during this step; shared-desktop focus was not preserved")
       const videoEnd = await report.video?.mark()
       const result = await report.record(
         {
@@ -77,6 +81,8 @@ export async function executeSteps(steps: Step[], context: Context, report: Repo
           durationMs: Math.round(performance.now() - start),
           videoStart,
           videoEnd,
+          focusBefore,
+          focusAfter: state.frontmostBundleId,
         },
         state,
       )
@@ -91,6 +97,8 @@ export async function executeSteps(steps: Step[], context: Context, report: Repo
           status: "failed",
           durationMs: Math.round(performance.now() - start),
           error: String(error),
+          focusBefore,
+          focusAfter: state?.frontmostBundleId,
           videoStart,
           videoEnd: await report.video?.mark().catch(() => undefined),
         },

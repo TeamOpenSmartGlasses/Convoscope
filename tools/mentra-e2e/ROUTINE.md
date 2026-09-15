@@ -1,10 +1,12 @@
 # No-glasses routine — English checklist
 
-This is the Step 1 specification for the real Mentra App on an Apple Silicon Mac, with no glasses connected. It is **partially observed, not yet a qualified full replay**. Use English and the `unpaired` fixture unless a step explicitly names another profile. Record one continuous video and a screenshot after every action/substep; the run viewer links each English description to its video timestamp.
+This is the Step 1 specification for the real Mentra App on an Apple Silicon Mac, with no glasses connected. The first complete deterministic replay passed all **68 actions and checks** on September 15, 2026. Final revision qualification is tracked in [README.md](README.md).
 
-All controls must work through native accessibility. A missing label, identifier or press action is an app defect to fix and rebuild, not permission to click coordinates. Source changes in this branch add the missing navigation semantics; the installed TestFlight build `320000235` predates them.
+The exact executable order and expected outcome of every action are in [COMPILED-ROUTINE.md](COMPILED-ROUTINE.md), generated from `flows/no-glasses.ts` with `bun run tools/mentra-e2e/run.ts describe`. The broader checklist below retains the original coverage IDs. Replay starts signed in on English, unpaired home, exercises navigation first, then logs out, validates authentication, signs in again, and restores home. Credentials are supplied at runtime. Each executed action has a screenshot and video chapter.
 
-Observed so far: login navigation and malformed-email validation (two terminal proof passes before the stricter identifier contract); real sign-in and first-run onboarding; unpaired home; Gallery's glasses-required dialog; Settings, Profile, Change Password, Change Email, logout cancellation, and the feedback form. First-run login and onboarding recordings contain failed expectations/recording reattachment and are retained as failures. Settings/Profile actions also worked while another app kept desktop focus. Full search, switcher, settings and lifecycle replay remains to be qualified after installing the accessibility fixes.
+All controls work through native accessibility. Missing semantics are app defects to fix and rebuild. Verified source fixes include the bottom sheet's individually accessible children and close action, the switcher's measured card container, the home tray, capsule and Back controls.
+
+Observed contracts: search persists across sheet dismissal/reopening and Clear Search resets it; Gallery and Captions both show their specific glasses-required dialog; device settings and Appearance are hidden in the consumer unpaired fixture; the local miniapp list replaces the old separate store surface. Logout returns to authentication; this account's next sign-in reaches onboarding. Set up with glasses → model selector → Back → normal relaunch returns to unpaired home without scanning or choosing a model. A second relaunch restores home directly. These paths were replayed successfully; they do not imply paired-device or Phone Mode coverage.
 
 ### Preparation and authentication
 
@@ -24,7 +26,7 @@ Observed so far: login navigation and malformed-email validation (two terminal p
 ### Home and local navigation
 
 13. **HOME-01 — Inspect the home screen.** Expect a settled miniapp grid and the connection/pairing presentation for the selected fixture. Persistent skeletons, a blank screen, or a false connected state fail.
-14. **HOME-02 — Open the all-apps sheet.** Expect its search field and known built-in miniapps. Check the sheet can scroll without moving into another screen.
+14. **HOME-02 — Open the all-apps sheet.** Expect its search field and known built-in miniapps. Scroll down and back up through the list without leaving the sheet; then exercise search and clear.
 15. **HOME-03 — Search for Settings.** Expect the matching built-in miniapp to remain visible and unrelated entries to be filtered.
 16. **HOME-04 — Search for a unique nonsense string.** Expect no matching miniapps rather than stale previous results. Capture the actual empty presentation and clear the query.
 17. **HOME-05 — Dismiss and reopen the sheet.** Expect home to remain usable and the observed search-reset/persistence contract to hold. Record that contract during discovery rather than assuming it.
@@ -33,7 +35,7 @@ Observed so far: login navigation and malformed-email validation (two terminal p
 
 ### Settings and account surfaces
 
-20. **SET-01 — Open Settings and scroll through it.** Expect Profile, Feedback, Speech, Privacy and Miniapp Developer Settings for the consumer fixture, plus device settings only when applicable. Source currently hides the entire device section when no device is paired.
+20. **SET-01 — Open Settings and inspect its sections.** Expect all visible consumer sections: Profile, Feedback, Speech, Privacy and Miniapp Developer Settings for the consumer fixture, plus device settings only when applicable. Source currently hides the entire device section when no device is paired.
 21. **SET-02 — Open Profile.** Expect the test identity and available account actions. Return and reopen to check navigation is repeatable.
 22. **SET-03 — Open Change Password and return.** Expect the correct form and back navigation. Do not enter or change credentials.
 23. **SET-04 — Open Change Email and return.** Expect the correct form and back navigation. Do not submit a change or send verification mail.

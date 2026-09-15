@@ -19,6 +19,7 @@ export interface Selector {
   value?: string
   placeholder?: string
   identifier?: string
+  identifierPrefix?: string
   text?: string
   contains?: string
   enabled?: boolean
@@ -43,6 +44,7 @@ export interface Element {
 }
 export interface Snapshot {
   pid: number
+  frontmostBundleId: string
   window: Frame
   elements: Element[]
 }
@@ -54,6 +56,8 @@ export interface Doctor {
   pid: number
   bundleId: string
   bundlePath: string
+  executablePath: string
+  javascriptPath: string
   version: string
   build: string
 }
@@ -141,6 +145,7 @@ export function match(element: Element, selector: Selector, snapshot: Snapshot):
     if (selector[key] !== undefined && element[key] !== selector[key]) return false
   }
   const texts = [element.title, element.description, element.value, element.placeholder]
+  if (selector.identifierPrefix !== undefined && !element.identifier.startsWith(selector.identifierPrefix)) return false
   if (selector.text !== undefined && !texts.includes(selector.text)) return false
   if (selector.contains !== undefined && !texts.some((text) => text.includes(selector.contains!))) return false
   if (selector.visible !== false && !element.visible) return false

@@ -18,6 +18,8 @@ export interface StepResult {
   videoEnd?: number
   screenshotSettled?: boolean
   screenshotVideoTime?: number
+  focusBefore?: string
+  focusAfter?: string
 }
 
 export function redact<T>(input: T, secrets: string[]): T {
@@ -81,9 +83,12 @@ export class Report {
   started = new Date().toISOString()
   metadata: Record<string, unknown> = {}
   video?: Video
-  constructor(readonly suite: string, readonly secrets: string[]) {}
+  constructor(
+    readonly suite: string,
+    readonly secrets: string[],
+  ) {}
 
-  async start(doctor: Doctor, fixture: string) {
+  async start(doctor: Doctor, fixture: string, buildManifestPath?: string) {
     this.directory = resolve(
       root,
       ".test-results/mentra-e2e",
@@ -103,15 +108,45 @@ export class Report {
       modelCalls: this.suite === "discovery" ? null : 0,
       sourceReference,
       app: doctor,
+      appExecutableHash: doctor.executablePath
+        ? createHash("sha256")
+            .update(await readFile(doctor.executablePath))
+            .digest("hex")
+        : null,
+      appJavascriptHash: doctor.javascriptPath
+        ? createHash("sha256")
+            .update(await readFile(doctor.javascriptPath))
+            .digest("hex")
+        : null,
       installedAppCommit: null,
       harnessHash: await treeHash(resolve(root, "tools/mentra-e2e")),
       driverHash: createHash("sha256")
         .update(await readFile(bin))
         .digest("hex"),
-      runtime: {bun: Bun.version, os: process.platform, architecture: process.arch},
+      runtime: {
+        bun: Bun.version,
+        os: process.platform,
+        architecture: process.arch,
+        macOS: Bun.spawnSync(["sw_vers", "-productVersion"]).stdout.toString().trim(),
+        swift: Bun.spawnSync(["swiftc", "--version"]).stdout.toString().trim(),
+      },
     }
     await this.flush()
     console.log(`Artifacts: ${this.directory}`)
+    if (buildManifestPath) {
+      const manifest = JSON.parse(await readFile(buildManifestPath, "utf8"))
+      if (
+        manifest.configuration !== "Release" ||
+        manifest.bundleId !== doctor.bundleId ||
+        manifest.executableSha256 !== this.metadata.appExecutableHash ||
+        !manifest.javascriptSha256 ||
+        manifest.javascriptSha256 !== this.metadata.appJavascriptHash
+      )
+        throw new Error("Build manifest does not match the running Release app's identity and binary/JavaScript hashes")
+      this.metadata.verifiedLocalBuild = manifest
+      this.metadata.installedAppCommit = manifest.sourceStatus === "" ? manifest.sourceCommit : null
+      await this.flush()
+    }
   }
 
   async startVideo() {
@@ -226,6 +261,25 @@ export class Report {
         cleanup += `; video finalization failed: ${String(error)}`
       }
       this.video = undefined
+    }
+    if (status === "passed") {
+      try {
+        const finalApp = await command<Doctor>({op: "doctor"})
+        this.metadata.finalApp = finalApp
+        const executableHash = createHash("sha256")
+          .update(await readFile(finalApp.executablePath))
+          .digest("hex")
+        const javascriptHash = finalApp.javascriptPath
+          ? createHash("sha256")
+              .update(await readFile(finalApp.javascriptPath))
+              .digest("hex")
+          : null
+        if (executableHash !== this.metadata.appExecutableHash || javascriptHash !== this.metadata.appJavascriptHash)
+          throw new Error("The running binary changed during the routine")
+      } catch (error) {
+        status = "incomplete"
+        cleanup += `; final app identity check failed: ${String(error)}`
+      }
     }
     this.metadata = {...this.metadata, ended: new Date().toISOString(), status, cleanup}
     await this.flush()

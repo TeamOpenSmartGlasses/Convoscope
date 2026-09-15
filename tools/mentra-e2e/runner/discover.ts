@@ -5,13 +5,13 @@ import {command, compact, snapshot, type Doctor} from "./driver"
 import {acquireLock, Report} from "./report"
 import {executeSteps, type Step} from "./suite"
 
-export async function discover(fixture: string) {
+export async function discover(fixture: string, buildManifestPath?: string) {
   const release = await acquireLock()
   const report = new Report("discovery", [])
   const input = createInterface({input: process.stdin, crlfDelay: Infinity})
   try {
     const doctor = await command<Doctor>({op: "doctor"})
-    await report.start(doctor, fixture)
+    await report.start(doctor, fixture, buildManifestPath)
     if (!doctor.accessibility || !doctor.screenCapture)
       throw new Error("Run doctor and complete macOS permissions first")
     await report.startVideo()
@@ -36,6 +36,9 @@ export async function discover(fixture: string) {
       report.results.some((step) => step.status === "failed") ? "failed" : "observed",
       "Discovery session ended; consult final screenshot for app state",
     )
+  } catch (error) {
+    if (report.directory) await report.finish("incomplete", `Discovery setup/run failure: ${String(error)}`)
+    throw error
   } finally {
     input.close()
     if (report.video) await report.finish("incomplete", "Discovery interrupted")

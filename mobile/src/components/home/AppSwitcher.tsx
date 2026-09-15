@@ -16,7 +16,15 @@ import Animated, {
 } from "react-native-reanimated"
 import {Gesture, GestureDetector} from "react-native-gesture-handler"
 import {runOnJS, scheduleOnRN} from "react-native-worklets"
-import {BgTimer, saveLastOpenTime, sortAppsByLastOpenTime, engine, type ClientApp, useActiveApps, useSetForeground} from "@mentra/engine"
+import {
+  BgTimer,
+  saveLastOpenTime,
+  sortAppsByLastOpenTime,
+  engine,
+  type ClientApp,
+  useActiveApps,
+  useSetForeground,
+} from "@mentra/engine"
 import AppIcon from "@/components/home/AppIcon"
 import {isOfflineHosted} from "@/components/miniapp/offlineHostedPackages"
 import {useSaferAreaInsets} from "@/contexts/SaferAreaContext"
@@ -622,7 +630,7 @@ export default function AppSwitcher({swipeProgress, blurTargetRef: _blurTargetRe
   )
 
   const goToEnd = useCallback(() => {
-    goToIndex(apps.length-1, true)
+    goToIndex(apps.length - 1, true)
   }, [apps.length])
 
   const goToIndex = useCallback(
@@ -826,8 +834,14 @@ export default function AppSwitcher({swipeProgress, blurTargetRef: _blurTargetRe
               testID="home.runningApps.close"
               className="absolute inset-0"
               onPress={handleClose}
+              onAccessibilityTap={handleClose}
+              accessibilityActions={[{name: "activate"}]}
+              onAccessibilityAction={({nativeEvent}) => {
+                if (nativeEvent.actionName === "activate") handleClose()
+              }}
             />
-            <Animated.View className="flex-row items-center">
+            {/* Absolute cards need a measured parent for the native accessibility tree. */}
+            <Animated.View className="flex-row items-center" style={{height: CARD_HEIGHT}}>
               {apps.map((app, index) => (
                 <AppCardItem
                   key={app.packageName}
