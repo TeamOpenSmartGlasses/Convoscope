@@ -218,9 +218,16 @@ jobs:
               '.[] | select(.name | test("^mentra-build-number-[0-9]+\\.json$")) | select((.name | capture("mentra-build-number-(?<code>[0-9]+)") | .code | tonumber) > $floor) | [.id, .name] | @tsv' \
               "$assets")
           }
+          # ASG pairs numbered before markers existed live in the shared ASG
+          # release; their numbers are taken too, in every family.
+          asg_assets='[]'
+          if asg_release_id=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/mentra-coordinated-asg" --jq .id 2>/dev/null); then
+            asg_assets=$(gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/releases/$asg_release_id/assets?per_page=100" | jq 'add // []')
+          fi
+          printf '%s\n' "$asg_assets" > promotion-input/family/asg-assets.json
           release_id=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/$BETA_TAG" --jq .id)
           gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/releases/$release_id/assets?per_page=100" \
-            | jq 'add // []' > promotion-input/family/assets.json
+            | jq 'add // []' | jq -s 'add' - promotion-input/family/asg-assets.json > promotion-input/family/assets.json
           download_markers promotion-input/family/assets.json \
             "$(jq -er .native.buildNumber promotion-input/beta/release-plan.json)" promotion-input/family/markers
           echo "release_id=$release_id" >> "$GITHUB_OUTPUT"
@@ -233,7 +240,7 @@ jobs:
             mkdir -p promotion-input/family/current-markers
             if current_id=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/$current_tag" --jq .id 2>/dev/null); then
               gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/releases/$current_id/assets?per_page=100" \
-                | jq 'add // []' > promotion-input/family/current-assets.json
+                | jq 'add // []' | jq -s 'add' - promotion-input/family/asg-assets.json > promotion-input/family/current-assets.json
               download_markers promotion-input/family/current-assets.json \
                 "$(jq -er .native.buildNumber promotion-input/current/release-plan.json)" promotion-input/family/current-markers
               echo "current_release_id=$current_id" >> "$GITHUB_OUTPUT"
