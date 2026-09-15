@@ -18,6 +18,7 @@ import {
   validatePackagesOptions,
   carriedDeferralReason,
   resubmitStep,
+  selectDispatchedRun,
 } from "./production-release.mjs"
 
 const baseRecord = {
@@ -285,33 +286,32 @@ test("dispatches the production example from the promoted beta and never promise
   assert.match(message, /never releases the example to a store/)
 })
 
-test("resubmit walks a store rejection to the next attempt's candidates and stops there", () => {
+test("resubmit decides every step from the latest and previous attempts and stops at the candidates", () => {
   const reference = (kind) => ({kind, url: "https://example.com/evidence.json", sha256: "c".repeat(64)})
   const beta = "3.1.0-beta.60"
-  const submitted = {
+  const rejected = {
     ...baseRecord,
     state: "stores-submitted",
     evidence: [reference("production-mobile-n-compatibility-deferred")],
   }
-  // The rejected attempt is aborted first, whatever main already contains.
-  assert.deepEqual(resubmitStep({record: submitted, betaIdentity: beta, mainHasBeta: true}), {
-    kind: "abort",
-    attempt: 1,
-  })
+  // Only an attempt the stores rejected is abandoned; anything else must be aborted on purpose.
+  assert.deepEqual(resubmitStep({record: rejected, betaIdentity: beta, mainHasBeta: true}), {kind: "abort", attempt: 1})
+  assert.throws(
+    () => resubmitStep({record: {...baseRecord, state: "cloud-deployed"}, betaIdentity: beta, mainHasBeta: true}),
+    /not a store rejection; abort it explicitly/,
+  )
   assert.throws(
     () => resubmitStep({record: {...baseRecord, state: "finalizing"}, betaIdentity: beta, mainHasBeta: true}),
     /100 percent rollout checkpoint/,
   )
-  const aborted = {...submitted, state: "aborted"}
-  // Then the corrected beta reaches main, then the next attempt starts.
-  assert.deepEqual(resubmitStep({record: aborted, betaIdentity: beta, mainHasBeta: false, aborted}), {kind: "promote"})
-  assert.deepEqual(resubmitStep({record: aborted, betaIdentity: beta, mainHasBeta: true, aborted}), {kind: "start"})
   assert.throws(
     () => resubmitStep({record: {...baseRecord, state: "completed"}, betaIdentity: beta, mainHasBeta: true}),
     /nothing to resubmit/,
   )
-  // The next attempt follows the state machine; workflows run, the deferred
-  // compatibility gate is carried, candidate acceptance is left to a human.
+  const aborted = {...rejected, state: "aborted"}
+  assert.deepEqual(resubmitStep({record: aborted, betaIdentity: beta, mainHasBeta: false}), {kind: "promote"})
+  assert.deepEqual(resubmitStep({record: aborted, betaIdentity: beta, mainHasBeta: true}), {kind: "start"})
+  // A fresh invocation finds the replacement attempt by its beta and resumes it.
   const next = (state, evidence = []) => ({
     ...baseRecord,
     attempt: 2,
@@ -320,36 +320,70 @@ test("resubmit walks a store rejection to the next attempt's candidates and stop
     evidence,
     selectedBeta: {...baseRecord.selectedBeta, identity: beta, releaseSetId: `mentra-${beta}`},
   })
-  assert.deepEqual(resubmitStep({record: next("staging-compatible"), betaIdentity: beta, mainHasBeta: true, aborted}), {
-    kind: "workflow",
-    workflow: "production-release-cloud.yml",
-    phase: "preflight",
-  })
-  assert.deepEqual(resubmitStep({record: next("cloud-deployed"), betaIdentity: beta, mainHasBeta: true, aborted}), {
-    kind: "defer",
-    check: "production-mobile-n-compatibility",
-  })
+  for (const [state, phase] of [
+    ["staging-compatible", "preflight"],
+    ["production-config-ready", "deploy"],
+    ["current-clients-accepted", "build"],
+  ]) {
+    assert.equal(
+      resubmitStep({record: next(state), previous: aborted, betaIdentity: beta, mainHasBeta: true}).phase,
+      phase,
+    )
+  }
+  assert.deepEqual(
+    resubmitStep({record: next("cloud-deployed"), previous: aborted, betaIdentity: beta, mainHasBeta: true}),
+    {
+      kind: "defer",
+      check: "production-mobile-n-compatibility",
+    },
+  )
   const attestedBefore = {...aborted, evidence: [reference("production-mobile-n-compatibility")]}
   assert.equal(
-    resubmitStep({record: next("cloud-deployed"), betaIdentity: beta, mainHasBeta: true, aborted: attestedBefore}).kind,
+    resubmitStep({record: next("cloud-deployed"), previous: attestedBefore, betaIdentity: beta, mainHasBeta: true})
+      .kind,
     "stop",
   )
+  // From the uploaded candidates on, nothing is dispatched, even when the state machine would.
+  for (const state of [
+    "mobile-candidates-uploaded",
+    "mobile-candidates-accepted",
+    "stores-submitted",
+    "public-release-approved",
+  ]) {
+    assert.equal(
+      resubmitStep({record: next(state), previous: aborted, betaIdentity: beta, mainHasBeta: true}).kind,
+      "stop",
+    )
+  }
   assert.equal(
-    resubmitStep({record: next("mobile-candidates-uploaded"), betaIdentity: beta, mainHasBeta: true, aborted}).kind,
+    resubmitStep({record: next("selected"), previous: aborted, betaIdentity: beta, mainHasBeta: true}).kind,
     "stop",
   )
+  // A replacement attempt started for another beta is never touched by accident.
   assert.throws(
     () =>
       resubmitStep({
         record: {...next("staging-compatible"), selectedBeta: baseRecord.selectedBeta},
+        previous: aborted,
         betaIdentity: beta,
         mainHasBeta: true,
-        aborted,
       }),
-    /already selected 3\.1\.0-beta\.57/,
+    /selected 3\.1\.0-beta\.57 and is at staging-compatible/,
   )
   assert.match(
     carriedDeferralReason(aborted, "production-mobile-n-compatibility", "fix"),
     /Carried from attempt 1 .* fix$/,
   )
+})
+
+test("resubmit adopts only the one run its own dispatch started", () => {
+  const run = (id) => ({databaseId: id, createdAt: "2026-09-15T20:00:00Z", url: `https://example.com/runs/${id}`})
+  assert.equal(selectDispatchedRun([run(1)], [run(1)]), null)
+  assert.deepEqual(selectDispatchedRun([run(1)], [run(2), run(1)]), run(2))
+  assert.throws(() => selectDispatchedRun([run(1)], [run(3), run(2), run(1)]), /More than one new dispatch/)
+})
+
+test("the documented boolean flags parse without a value", () => {
+  const {options} = parseCliArgs(["promote", "--beta", "3.1.0-beta.60", "--merge-admin", "--yes"])
+  assert.deepEqual(options, {"beta": "3.1.0-beta.60", "merge-admin": true, "yes": true})
 })

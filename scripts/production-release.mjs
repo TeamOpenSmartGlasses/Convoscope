@@ -45,7 +45,7 @@ export function parseCliArgs(argv) {
       continue
     }
     const key = item.slice(2)
-    if (new Set(["yes", "json", "refresh", "complete"]).has(key)) {
+    if (new Set(["yes", "json", "refresh", "complete", "merge-admin"]).has(key)) {
       options[key] = true
       continue
     }
@@ -461,29 +461,46 @@ function sleepSeconds(seconds) {
 // Dispatch a workflow and wait for the run it starts. gh does not return the
 // run id, so the newest dispatch of that workflow created after the call is
 // taken as the run; the CLI never dispatches the same workflow twice at once.
+// The run this dispatch started is the one new workflow_dispatch run by this
+// login that was not listed before the dispatch. Two new ones (another
+// operator dispatching the same workflow at the same moment) are ambiguous
+// and stop the command rather than adopt a stranger's run.
+export function selectDispatchedRun(before, after) {
+  const known = new Set(before.map((run) => run.databaseId))
+  const fresh = after.filter((run) => !known.has(run.databaseId))
+  if (fresh.length > 1) {
+    throw new Error(`More than one new dispatch is running: ${fresh.map((run) => run.url).join(", ")}`)
+  }
+  return fresh[0] ?? null
+}
+
+function listDispatches(workflow, login) {
+  return ghJson([
+    "run",
+    "list",
+    "--repo",
+    REPOSITORY,
+    "--workflow",
+    workflow,
+    "--event",
+    "workflow_dispatch",
+    "--user",
+    login,
+    "--limit",
+    "20",
+    "--json",
+    "databaseId,createdAt,url",
+  ])
+}
+
 function dispatchAndWait(workflow, fields) {
-  const since = new Date(Date.now() - 5_000).toISOString().replace(/\.\d{3}Z$/, "Z")
+  const login = ghJson(["api", "user"]).login
+  const before = listDispatches(workflow, login)
   dispatch(workflow, fields)
   let run = null
   for (let attempt = 0; attempt < 24 && !run; attempt += 1) {
     sleepSeconds(5)
-    const runs = ghJson([
-      "run",
-      "list",
-      "--repo",
-      REPOSITORY,
-      "--workflow",
-      workflow,
-      "--event",
-      "workflow_dispatch",
-      "--created",
-      `>=${since}`,
-      "--limit",
-      "5",
-      "--json",
-      "databaseId,createdAt,url",
-    ])
-    run = runs.sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0] ?? null
+    run = selectDispatchedRun(before, listDispatches(workflow, login))
   }
   if (!run) throw new Error(`${workflow} did not start within two minutes of the dispatch`)
   console.log(`Waiting for ${run.url}`)
@@ -500,45 +517,51 @@ function dispatchAndWait(workflow, fields) {
   }
 }
 
-// What resubmit does next, from the latest promotion record of the release.
-// `aborted` is the record of the attempt the store rejected, once known.
-export function resubmitStep({record, betaIdentity, mainHasBeta, aborted = null}) {
-  const terminal = record.state === "aborted" || record.state === "completed"
-  if (!terminal) {
-    if (aborted && record.attempt > aborted.attempt) {
-      if (record.selectedBeta.identity !== betaIdentity) {
-        throw new Error(
-          `Attempt ${record.attempt} already selected ${record.selectedBeta.identity}, not ${betaIdentity}; abort it or resubmit that beta`,
-        )
-      }
-      const action = nextAction(record)
-      if (action.kind === "workflow") return {kind: "workflow", workflow: action.workflow, phase: action.phase}
-      if (action.kind === "attest" && action.check === "production-mobile-n-compatibility") {
-        return deferredChecks(aborted).includes(action.check)
-          ? {kind: "defer", check: action.check}
-          : {
-              kind: "stop",
-              reason: `attempt ${aborted.attempt} attested ${action.check} itself; attest or defer it again`,
-            }
-      }
-      if (action.kind === "attest" && action.check === "production-mobile-candidate-acceptance") {
-        return {
-          kind: "stop",
-          reason: "the new candidates are uploaded; verify them, then attest or defer candidate acceptance and submit",
-        }
-      }
-      return {kind: "stop", reason: `attempt ${record.attempt} is at ${record.state}`}
-    }
-    if (record.state === "finalizing") throw new Error("Cannot resubmit after the 100 percent rollout checkpoint")
-    return {kind: "abort", attempt: record.attempt}
-  }
+// The states resubmit drives on its own. Everything from the uploaded
+// candidates on is a human decision, whatever the state machine's next action.
+const RESUBMIT_WORKFLOW_STATES = new Set(["staging-compatible", "production-config-ready", "current-clients-accepted"])
+
+// What resubmit does next, from the latest promotion record of the release
+// and the record of the attempt before it (null when there is none). Every
+// invocation decides from these two durable records, so a rerun resumes.
+export function resubmitStep({record, previous = null, betaIdentity, mainHasBeta}) {
   if (record.state === "completed") throw new Error(`${record.promotionId} is completed; nothing to resubmit`)
-  if (!mainHasBeta) return {kind: "promote"}
-  return {kind: "start"}
+  if (record.state === "aborted") return mainHasBeta ? {kind: "start"} : {kind: "promote"}
+  if (record.selectedBeta.identity === betaIdentity) {
+    // The replacement attempt already exists: resume it.
+    if (RESUBMIT_WORKFLOW_STATES.has(record.state)) {
+      const action = nextAction(record)
+      return {kind: "workflow", workflow: action.workflow, phase: action.phase}
+    }
+    if (record.state === "cloud-deployed") {
+      const check = "production-mobile-n-compatibility"
+      if (previous?.state === "aborted" && deferredChecks(previous).includes(check)) return {kind: "defer", check}
+      return {
+        kind: "stop",
+        reason: `${check} was not deferred by attempt ${previous?.attempt ?? "?"}; attest or defer it`,
+      }
+    }
+    if (record.state === "selected") {
+      return {
+        kind: "stop",
+        reason: `attempt ${record.attempt} needs the staging compatibility lab or its attestation first`,
+      }
+    }
+    return {
+      kind: "stop",
+      reason: `attempt ${record.attempt} is at ${record.state}; from the uploaded candidates on, the steps are yours`,
+    }
+  }
+  // Another beta: only an attempt the stores rejected is abandoned here.
+  if (record.state === "stores-submitted") return {kind: "abort", attempt: record.attempt}
+  if (record.state === "finalizing") throw new Error("Cannot resubmit after the 100 percent rollout checkpoint")
+  throw new Error(
+    `Attempt ${record.attempt} selected ${record.selectedBeta.identity} and is at ${record.state}, not a store rejection; abort it explicitly or resubmit that beta`,
+  )
 }
 
-export function carriedDeferralReason(aborted, check, reason) {
-  return `Carried from attempt ${aborted.attempt} (${check} was deferred there) after a store rejection: ${reason}`
+export function carriedDeferralReason(previous, check, reason) {
+  return `Carried from attempt ${previous.attempt} (${check} was deferred there) after a store rejection: ${reason}`
 }
 
 export function statusSummary(record) {
@@ -785,12 +808,22 @@ function deferCheck({loaded, releaseIdentity, check, reason, wait}) {
 async function resubmit({releaseIdentity, betaIdentity, reason, mergeAdmin}) {
   const sources = loadReleaseBranchSources(betaIdentity)
   ensureCommitIsOnBranch(REPOSITORY, sources.mentraosCommit, "staging")
-  let aborted = null
   for (let step = 0; step < 12; step += 1) {
-    const loaded = loadLatestRecord(releaseIdentity)
-    if (!aborted && loaded.record.state === "aborted") aborted = loaded.record
+    let loaded
+    try {
+      loaded = loadLatestRecord(releaseIdentity)
+    } catch (error) {
+      // prepare allocated the container and stopped before its first record:
+      // the prepare workflow resumes such a container.
+      if (!/has no state record/.test(error.message)) throw error
+      console.log(`resubmit: ${error.message}; resuming preparation`)
+      dispatchAndWait("production-release-prepare.yml", {beta_identity: betaIdentity})
+      continue
+    }
+    const previous =
+      loaded.record.attempt > 1 ? loadLatestRecord(releaseIdentity, loaded.record.attempt - 1).record : null
     const mainHasBeta = requirePromotionRelationship(REPOSITORY, "main", sources.mentraosCommit).state === "complete"
-    const next = resubmitStep({record: loaded.record, betaIdentity, mainHasBeta, aborted})
+    const next = resubmitStep({record: loaded.record, previous, betaIdentity, mainHasBeta})
     console.log(
       `resubmit: ${next.kind}${next.workflow ? ` ${next.workflow} ${next.phase}` : ""}${next.check ? ` ${next.check}` : ""}`,
     )
@@ -801,7 +834,6 @@ async function resubmit({releaseIdentity, betaIdentity, reason, mergeAdmin}) {
         attempt: loaded.record.attempt,
         reason: `Store rejection of attempt ${loaded.record.attempt}; ${betaIdentity} carries the correction. ${reason}`,
       })
-      aborted = loadLatestRecord(releaseIdentity, loaded.record.attempt).record
       continue
     }
     if (next.kind === "promote") {
@@ -831,7 +863,7 @@ async function resubmit({releaseIdentity, betaIdentity, reason, mergeAdmin}) {
         loaded,
         releaseIdentity,
         check: next.check,
-        reason: carriedDeferralReason(aborted, next.check, reason),
+        reason: carriedDeferralReason(previous, next.check, reason),
         wait: true,
       })
       continue
