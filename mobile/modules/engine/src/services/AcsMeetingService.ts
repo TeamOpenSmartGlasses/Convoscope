@@ -569,6 +569,8 @@ class AcsMeetingService {
   private lastMediaRestartAt = 0
   /** Callers parked in [waitForFirstFrame], woken by the next `mediaSource` verdict. */
   private readonly firstFrameWaiters = new Set<(error?: Error) => void>()
+  /** Mid-call republish waiters: live resolves true, leave/timeout resolves false. Failed is ignored. */
+  private readonly mediaLiveWaiters = new Set<(live: boolean) => void>()
   private scopedLostSub: {remove: () => void} | null = null
   private readonly scopedLostListeners = new Set<(error: {code: string; message: string}) => void>()
   /**
@@ -837,6 +839,42 @@ class AcsMeetingService {
     if (mediaSource !== "live" && mediaSource !== "failed") return
     const error = mediaSource === "failed" ? new Error("The glasses video feed failed") : undefined
     for (const settle of [...this.firstFrameWaiters]) settle(error)
+    if (mediaSource === "live") this.settleMediaLiveWaiters(true)
+  }
+
+  private settleMediaLiveWaiters(live: boolean): void {
+    for (const settle of [...this.mediaLiveWaiters]) settle(live)
+  }
+
+  /**
+   * Mid-call SoftAP camera recovery. Resolves `true` only when ingest is live again.
+   * A standing `failed` is why we republished, so it must not abort the wait the way
+   * [waitForFirstFrame] does on join.
+   */
+  waitUntilMediaLive(timeoutMs: number): Promise<boolean> {
+    if (this.lastState.mediaSource === "live") return Promise.resolve(true)
+    const startedAt = Date.now()
+    softapTrace("acs_media_live_wait", {
+      timeoutMs,
+      mediaSource: this.lastState.mediaSource ?? "unknown",
+      state: this.lastState.state,
+    })
+    return new Promise<boolean>((resolve) => {
+      const settle = (live: boolean) => {
+        if (done) return
+        done = true
+        clearTimeout(timer)
+        this.mediaLiveWaiters.delete(settle)
+        softapTrace("acs_media_live_wait_done", {
+          waitedMs: Date.now() - startedAt,
+          live,
+        })
+        resolve(live)
+      }
+      let done = false
+      const timer = setTimeout(() => settle(false), timeoutMs)
+      this.mediaLiveWaiters.add(settle)
+    })
   }
 
   /**
@@ -1164,6 +1202,8 @@ class AcsMeetingService {
     // rejected, or a leave mid-join leaves the orchestrator waiting out its whole timeout.
     for (const settle of [...this.firstFrameWaiters]) settle(new Error("The meeting ended"))
     this.firstFrameWaiters.clear()
+    this.settleMediaLiveWaiters(false)
+    this.mediaLiveWaiters.clear()
     this.stopGlassesMicUplink()
     this.unwatchPhoneNetwork()
     await this.stopPcm()

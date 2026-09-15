@@ -3748,6 +3748,9 @@ class LocalMiniappRuntime {
         type: MiniappResponseType.MEETING_STATE,
         ...state,
       })
+      if (attempt?.ownsResources && attempt.transport?.shouldRepublish(state.mediaSource)) {
+        void attempt.transport.republish(state.mediaSourceReason ?? "mediaSource failed")
+      }
     })
   }
 
@@ -4102,6 +4105,7 @@ class LocalMiniappRuntime {
         displayName: args.displayName,
         video: args.video,
         awaitFirstFrame: () => acsMeetingService.waitForFirstFrame(SOFTAP_FIRST_FRAME_MS),
+        waitUntilLive: (timeoutMs) => acsMeetingService.waitUntilMediaLive(timeoutMs),
         subsystems: {
           setHotspotState: async (enabled) => {
             const status = await this.setGlassesHotspotState(enabled)

@@ -205,6 +205,13 @@ export interface SoftapCallDeps {
    * that never delivers a frame reads as healthy behind a frozen tile.
    */
   awaitFirstFrame(report?: SoftapStepReporter): Promise<void>
+  /**
+   * Mid-call camera recovery. Resolves `true` only when ingest is live again.
+   * A standing `failed` is the reason we are republishing, so it must not abort the wait.
+   */
+  waitUntilLive?(timeoutMs: number): Promise<boolean>
+  /** Delay after a failed `start_stream` before the next republish attempt. Tests set 0. */
+  republishRetryDelayMs?: number
 }
 
 export interface SoftapCallOptions {
@@ -245,6 +252,15 @@ function deferred(): {promise: Promise<void>; resolve: () => void} {
   })
   return {promise, resolve}
 }
+
+function sleep(ms: number): Promise<void> {
+  if (ms <= 0) return Promise.resolve()
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+/** How long a mid-call republish waits for a frame after re-issuing `start_stream`. */
+export const SOFTAP_REPUBLISH_LIVE_MS = 20_000
+const REPUBLISH_RETRY_DELAY_MS = 2_000
 
 /**
  * How a call is being taken down.
@@ -322,11 +338,79 @@ export class SoftapCallTransport {
   private startedAt = 0
   private traceId = ""
   private onProgress: ((progress: SoftapProgress) => void) | undefined
+  private republishing: Promise<void> | null = null
+  /** Bumped by `stop` so an in-flight republish cannot start_stream after Leave. */
+  private republishGeneration = 0
 
   constructor(private readonly deps: SoftapCallDeps) {}
 
   currentPhase(): SoftapPhase {
     return this.phase
+  }
+
+  /**
+   * The glasses camera died after this call was already live. Re-issue `start_stream` at the
+   * existing ingest URL — do not rebind the WHIP listener, or the glasses POST to a dead port.
+   */
+  shouldRepublish(mediaSource?: string): boolean {
+    return this.phase === "live" && !this.terminating && mediaSource === "failed"
+  }
+
+  /**
+   * Rebuild the glasses publisher onto the standing SoftAP ingest URL.
+   *
+   * ACS, BLE mic, and the WHIP listener stay up. The glasses process is what usually vanished
+   * (UVC/`system_server` crash); a new `start_stream` is what they need after ASG comes back.
+   */
+  republish(reason: string): Promise<void> {
+    if (this.phase !== "live" || this.terminating || !this.ingestUrl) return Promise.resolve()
+    if (this.republishing) return this.republishing
+    const generation = this.republishGeneration
+    this.republishing = this.runRepublish(reason, generation).finally(() => {
+      if (this.republishGeneration === generation) this.republishing = null
+    })
+    return this.republishing
+  }
+
+  private async runRepublish(reason: string, generation: number): Promise<void> {
+    const ingestUrl = this.ingestUrl
+    if (!ingestUrl) return
+    const retryDelayMs = this.deps.republishRetryDelayMs ?? REPUBLISH_RETRY_DELAY_MS
+    let attempt = 0
+    softapTrace("glasses_republish_begin", {reason, ingestUrl})
+    while (
+      generation === this.republishGeneration &&
+      !this.terminating &&
+      this.phase === "live" &&
+      this.ingestUrl === ingestUrl
+    ) {
+      attempt += 1
+      try {
+        await this.deps.stopPublishing()
+        if (generation !== this.republishGeneration || this.terminating) return
+        await this.deps.startPublishing({ingestUrl, traceId: this.traceId})
+        if (generation !== this.republishGeneration || this.terminating) {
+          await this.deps.stopPublishing().catch(() => undefined)
+          return
+        }
+        softapTrace("glasses_republish_sent", {attempt, ingestUrl})
+        if (!this.deps.waitUntilLive) return
+        const live = await this.deps.waitUntilLive(SOFTAP_REPUBLISH_LIVE_MS)
+        if (generation !== this.republishGeneration || this.terminating) return
+        if (live) {
+          softapTrace("glasses_republish_live", {attempt})
+          return
+        }
+        softapTraceFailure("glasses_republish_no_frame", {attempt})
+      } catch (error) {
+        if (generation !== this.republishGeneration || this.terminating) return
+        softapTraceFailure("glasses_republish_start_failed", {
+          attempt,
+          reason: error instanceof Error ? error.message : String(error),
+        })
+        await sleep(retryDelayMs)
+      }
+    }
   }
 
   /**
@@ -577,6 +661,7 @@ export class SoftapCallTransport {
     // Intent before action, always: a watcher must be able to tell a deliberate teardown from a
     // failure even during the very first await below.
     this.terminating = true
+    this.republishGeneration++
     if (options.mode) this.teardownMode = options.mode
     if (this.stopping) {
       softapTrace("softap_stop_joined_in_flight", {mode: this.teardownMode})
@@ -833,6 +918,11 @@ export function createSoftapCallDeps(args: {
   video?: {width: number; height: number; fps: number; maxBitrateBps: number}
   /** Resolves when the meeting reports a frame reached ACS; rejects on a failed feed. */
   awaitFirstFrame: () => Promise<void>
+  /**
+   * Mid-call camera recovery. Resolves `true` only when ingest is live again.
+   * A standing `failed` is the reason we are republishing, so it must not abort the wait.
+   */
+  waitUntilLive?: (timeoutMs: number) => Promise<boolean>
   subsystems: {
     setHotspotState: (enabled: boolean) => Promise<{state: string; ssid?: string; password?: string; localIp?: string}>
     /** Whether this phone's Wi-Fi radio is on. Optional: only Android hosts can answer it. */
@@ -1080,5 +1170,6 @@ export function createSoftapCallDeps(args: {
     },
     stopPublishing: () => subsystems.stopPublishing(packageName),
     awaitFirstFrame: args.awaitFirstFrame,
+    waitUntilLive: args.waitUntilLive,
   }
 }

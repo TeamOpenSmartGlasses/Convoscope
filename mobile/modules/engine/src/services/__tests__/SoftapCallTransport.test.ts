@@ -1729,3 +1729,52 @@ describe("createSoftapCallDeps", () => {
     })
   })
 })
+
+describe("SoftapCallTransport mid-call republish", () => {
+  test("is a no-op until the call is live", async () => {
+    const {calls, transport} = recordingDeps()
+    await transport.republish("too early")
+    expect(calls.filter((call) => call.startsWith("startPublishing"))).toEqual([])
+    expect(transport.shouldRepublish("failed")).toBe(false)
+  })
+
+  test("re-issues start_stream on the standing ingest URL without leaving the meeting", async () => {
+    const {calls, transport} = recordingDeps({
+      waitUntilLive: async () => true,
+    })
+    await transport.start()
+    const before = calls.length
+    expect(transport.shouldRepublish("failed")).toBe(true)
+    await transport.republish("mediaSource failed")
+    expect(calls.slice(before)).toEqual([
+      "stopPublishing",
+      "startPublishing:http://192.168.43.20:8790/whip",
+    ])
+    expect(calls.filter((call) => call === "leaveMeeting")).toEqual([])
+    expect(transport.currentPhase()).toBe("live")
+  })
+
+  test("retries start_stream until ingest is live again", async () => {
+    let lives = 0
+    const {calls, transport} = recordingDeps({
+      republishRetryDelayMs: 0,
+      waitUntilLive: async () => {
+        lives += 1
+        return lives >= 2
+      },
+    })
+    await transport.start()
+    await transport.republish("stalled")
+    expect(calls.filter((call) => call.startsWith("startPublishing"))).toHaveLength(3)
+  })
+
+  test("does not republish after the call has been torn down", async () => {
+    const {calls, transport} = recordingDeps({waitUntilLive: async () => true})
+    await transport.start()
+    await transport.stop()
+    const after = calls.length
+    await transport.republish("too late")
+    expect(calls.length).toBe(after)
+    expect(transport.shouldRepublish("failed")).toBe(false)
+  })
+})

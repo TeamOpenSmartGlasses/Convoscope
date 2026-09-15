@@ -1546,3 +1546,43 @@ describe("waitForFirstFrame", () => {
     await expect(acsMeetingService.waitForFirstFrame(0)).resolves.toBeUndefined()
   })
 })
+
+describe("waitUntilMediaLive", () => {
+  afterEach(async () => {
+    await acsMeetingService.leave("com.mentra.call")
+    setAcsMeetingNativeForTests(undefined)
+  })
+
+  async function joinedNative() {
+    const native = fakeNative()
+    setAcsMeetingNativeForTests(native)
+    await acsMeetingService.join("com.mentra.call", {
+      meetingUrl: "https://teams.microsoft.com/l/meetup-join/x",
+      token: "tok",
+      videoSource: {type: "softap"},
+    })
+    return native
+  }
+
+  test("a standing failed feed does not abort the wait the way join does", async () => {
+    const native = await joinedNative()
+    native.emit("onState", {state: "connected", muted: false, mediaSource: "failed"})
+    const waiting = acsMeetingService.waitUntilMediaLive(60_000)
+    native.emit("onState", {state: "connected", muted: false, mediaSource: "failed"})
+    native.emit("onState", {state: "connected", muted: false, mediaSource: "live"})
+    await expect(waiting).resolves.toBe(true)
+  })
+
+  test("times out false when ingest never returns", async () => {
+    const native = await joinedNative()
+    native.emit("onState", {state: "connected", muted: false, mediaSource: "failed"})
+    await expect(acsMeetingService.waitUntilMediaLive(10)).resolves.toBe(false)
+  })
+
+  test("a leave mid-wait resolves false instead of stranding the republish loop", async () => {
+    await joinedNative()
+    const waiting = acsMeetingService.waitUntilMediaLive(60_000)
+    await acsMeetingService.leave("com.mentra.call")
+    await expect(waiting).resolves.toBe(false)
+  })
+})
