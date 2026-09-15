@@ -4,13 +4,17 @@ import test from "node:test"
 import {
   advanceConfirmationMessage,
   branchPromotionState,
+  deferralAttestation,
+  exampleConfirmationMessage,
   packagesConfirmationMessage,
   parseCliArgs,
   parseJsonLines,
+  promotionGateState,
   releaseBranchSources,
   requireCommandState,
   statusSummary,
   validateAdvanceOptions,
+  validateExampleOptions,
   validatePackagesOptions,
 } from "./production-release.mjs"
 
@@ -159,6 +163,44 @@ test("prevents commands from skipping promotion states", () => {
   assert.equal(requireCommandState("advance", {...baseRecord, state: "finalizing"}).command, "advance")
 })
 
+test("defers only the pre-submission human gates and blocks release until they are attested", () => {
+  const cloudDeployed = {...baseRecord, state: "cloud-deployed"}
+  assert.equal(requireCommandState("defer", cloudDeployed, {check: "production-mobile-n-compatibility"}).kind, "attest")
+  assert.throws(
+    () => requireCommandState("defer", cloudDeployed, {check: "production-mobile-candidate-acceptance"}),
+    /expects production-mobile-n-compatibility/,
+  )
+  assert.throws(
+    () => requireCommandState("defer", {...baseRecord, state: "stores-submitted"}, {check: "store-review-approved"}),
+    /can be deferred, not store-review-approved/,
+  )
+  const reference = (kind) => ({kind, url: "https://example.com/evidence.json", sha256: "c".repeat(64)})
+  const deferred = {
+    ...baseRecord,
+    state: "stores-approved",
+    evidence: [reference("production-mobile-n-compatibility-deferred")],
+  }
+  assert.equal(requireCommandState("attest", deferred, {check: "production-mobile-n-compatibility"}).kind, "command")
+  assert.throws(() => requireCommandState("release", deferred), /deferred human gates to be attested first/)
+  assert.deepEqual(statusSummary(deferred).deferredChecks, ["production-mobile-n-compatibility"])
+  const resolved = {...deferred, evidence: [...deferred.evidence, reference("production-mobile-n-compatibility")]}
+  assert.deepEqual(statusSummary(resolved).deferredChecks, [])
+  assert.throws(
+    () => requireCommandState("attest", resolved, {check: "production-mobile-n-compatibility"}),
+    /expects command, not production-mobile-n-compatibility/,
+  )
+  const attestation = deferralAttestation({
+    record: baseRecord,
+    check: "production-mobile-n-compatibility",
+    reason: "verify during store review",
+    githubLogin: "owner",
+    performedAt: "2026-09-12T01:00:00.000Z",
+  })
+  assert.equal(attestation.result, "deferred")
+  assert.equal(attestation.promotionId, "mentra-3.1.0-attempt-1")
+  assert.equal(attestation.tests, undefined)
+})
+
 test("dispatches stable package phases from the promoted beta without a promotion state", () => {
   assert.deepEqual(validatePackagesOptions({beta: "3.1.0-beta.192", phase: "publish"}), {
     beta_identity: "3.1.0-beta.192",
@@ -187,4 +229,56 @@ test("parses line-delimited gh projections and ignores blank lines", () => {
   ])
   assert.deepEqual(parseJsonLines(""), [])
   assert.throws(() => parseJsonLines("{not json}"), SyntaxError)
+})
+
+test("the promotion gate follows the ci-gate status and ignores push-triggered beta jobs", () => {
+  const betaJob = {
+    name: "Publish React Native example to Google Play / Build",
+    workflow: "Coordinated Mentra Release",
+    event: "push",
+    bucket: "fail",
+  }
+  const bot = {name: "Plan agent cycle", workflow: "PR Agent Orchestrator", event: "pull_request", bucket: "fail"}
+  const build = {
+    name: "Mobile App iOS Build",
+    workflow: "Mobile App iOS Build",
+    event: "pull_request",
+    bucket: "pending",
+  }
+  const gatePending = {
+    name: "ci-gate-dev",
+    workflow: "",
+    event: "",
+    bucket: "pending",
+    description: "Waiting on: Mobile App iOS Build",
+  }
+  const gatePassed = {...gatePending, bucket: "pass", description: "All required area builds passed"}
+  const gateFailed = {...gatePending, bucket: "fail"}
+
+  assert.equal(promotionGateState([betaJob, bot, build, gatePending]).state, "pending")
+  assert.equal(promotionGateState([betaJob, bot, build, gatePassed]).state, "passed")
+  assert.deepEqual(promotionGateState([betaJob, bot, gateFailed]).rows, [gateFailed])
+  // Without a ci-gate status only the pull request's gated area builders
+  // decide; an advisory bot failing on the pull request never aborts.
+  assert.equal(promotionGateState([betaJob, build]).state, "pending")
+  assert.equal(promotionGateState([betaJob, {...build, bucket: "pass"}]).state, "passed")
+  assert.equal(promotionGateState([betaJob, bot, {...build, bucket: "pass"}]).state, "passed")
+  assert.equal(promotionGateState([betaJob, bot, {...build, bucket: "fail"}]).state, "failed")
+  assert.equal(promotionGateState([betaJob, bot], {settled: true}).state, "passed")
+  // Only the beta's push rows exist right after the PR is created: keep waiting
+  // until registration has settled, then an empty gate means nothing applies.
+  assert.equal(promotionGateState([betaJob]).state, "pending")
+  assert.equal(promotionGateState([betaJob], {settled: false}).state, "pending")
+  assert.equal(promotionGateState([betaJob], {settled: true}).state, "passed")
+  assert.equal(promotionGateState([betaJob, build], {settled: true}).state, "pending")
+  assert.equal(promotionGateState([betaJob, {...build, bucket: "fail"}], {settled: true}).state, "failed")
+  assert.throws(() => promotionGateState(null), /must be an array/)
+})
+
+test("dispatches the production example from the promoted beta and never promises a store release", () => {
+  assert.deepEqual(validateExampleOptions({beta: "3.1.0-beta.212"}), {beta_identity: "3.1.0-beta.212"})
+  assert.throws(() => validateExampleOptions({beta: "3.1.0"}), /--beta X\.Y\.Z-beta\.N/)
+  const message = exampleConfirmationMessage({beta_identity: "3.1.0-beta.212"})
+  assert.match(message, /example 3\.1\.0 from the public 3\.1\.0 packages/)
+  assert.match(message, /never releases the example to a store/)
 })

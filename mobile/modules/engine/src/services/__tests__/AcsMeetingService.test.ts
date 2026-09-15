@@ -134,6 +134,8 @@ function fakeNative() {
       return {remove: () => listeners.delete(event)}
     },
     emit: (event: string, payload: Record<string, unknown>) => listeners.get(event)?.(payload),
+    /** The handler currently bound, kept so a test can fire it after it was unregistered. */
+    handlerFor: (event: string) => listeners.get(event),
   }
 }
 
@@ -173,7 +175,9 @@ describe("AcsMeetingService", () => {
   test("cancel during trace setup prevents a late native hotspot join", async () => {
     const native = fakeNative()
     let releaseTrace!: () => void
-    const trace = new Promise<void>((resolve) => { releaseTrace = resolve })
+    const trace = new Promise<void>((resolve) => {
+      releaseTrace = resolve
+    })
     setAcsMeetingNativeForTests({...native, beginTrace: () => trace})
     const joining = acsMeetingService.joinScopedNetwork("MentraLive-1234", "pw").catch((error: Error) => error)
     await acsMeetingService.cancelScopedNetworkJoin()
@@ -342,6 +346,38 @@ describe("AcsMeetingService", () => {
     acsMeetingService.setStateHandler(() => {})
   })
 
+  /**
+   * Removing a listener does not recall an event already dispatched onto the JS queue. On the
+   * SoftAP path that event is usually the previous call's `disconnected`, arriving while the
+   * wearer watches the next call connect — which is why the generation is checked in the handler
+   * and not only at `remove()`.
+   */
+  test("a state event already in flight when the next call starts does not end it", async () => {
+    const native = fakeNative()
+    setAcsMeetingNativeForTests(native)
+    const seen: string[] = []
+    acsMeetingService.setStateHandler((_pkg, state) => {
+      seen.push(state.state)
+    })
+    const options = {
+      meetingUrl: "https://teams.microsoft.com/l/meetup-join/x",
+      token: "tok",
+      videoSource: {type: "whep" as const, url: "https://example.com/whep"},
+    }
+    await acsMeetingService.join("com.mentra.call", options)
+    const stale = native.handlerFor("onState")
+    await acsMeetingService.leave("com.mentra.call")
+    await acsMeetingService.join("com.mentra.call", options)
+    native.emit("onState", {state: "connected", muted: false})
+
+    stale?.({state: "disconnected", muted: false})
+
+    expect(seen).not.toContain("disconnected")
+    expect(acsMeetingService.getState().state).toBe("connected")
+    expect(acsMeetingService.ownerPackage()).toBe("com.mentra.call")
+    acsMeetingService.setStateHandler(() => {})
+  })
+
   test("mute and video-source updates require an active owner", async () => {
     const native = fakeNative()
     setAcsMeetingNativeForTests(native)
@@ -456,9 +492,7 @@ describe("AcsMeetingService", () => {
       token: "tok",
       videoSource: {type: "whep", url: "https://example.com/whep"},
     })
-    expect(native.join).toHaveBeenCalledWith(
-      expect.objectContaining({audioSource: ACS_CALL_MIC}),
-    )
+    expect(native.join).toHaveBeenCalledWith(expect.objectContaining({audioSource: ACS_CALL_MIC}))
     expect(state.audioSource).toBe(ACS_CALL_MIC)
     expect(state.audioSourceReason).toBe("explicit")
     expect(openStream).toHaveBeenCalledTimes(1)
@@ -567,7 +601,10 @@ describe("AcsMeetingService", () => {
   test("parseAcsOutgoingVideo accepts documented 16:9 sizes and rejects 540×960 and 854×480", () => {
     for (const fps of [15, 24, 30]) {
       expect(parseAcsOutgoingVideo({width: 858, height: 480, fps, maxBitrateBps: 1_000_000})).toEqual({
-        width: 858, height: 480, fps, maxBitrateBps: 1_000_000,
+        width: 858,
+        height: 480,
+        fps,
+        maxBitrateBps: 1_000_000,
       })
     }
     expect(parseAcsOutgoingVideo({width: 1280, height: 720, fps: 15, maxBitrateBps: 2_500_000})).toEqual({
@@ -672,9 +709,9 @@ describe("AcsMeetingService", () => {
       videoSource: {type: "softap"},
     })
 
-    await expect(
-      acsMeetingService.updateVideoSource("com.mentra.call", "https://example.com/whep"),
-    ).rejects.toThrow("SoftAP")
+    await expect(acsMeetingService.updateVideoSource("com.mentra.call", "https://example.com/whep")).rejects.toThrow(
+      "SoftAP",
+    )
     expect(native.updateVideoSource).not.toHaveBeenCalled()
     await acsMeetingService.leave("com.mentra.call")
   })
@@ -789,9 +826,7 @@ describe("glasses LC3 microphone uplink", () => {
     // iOS has no mic pin, so it cannot promise the phone microphone stays shut.
     expect(glassesLc3UplinkSupported({...supported, platform: "ios"})).toBe(false)
     // WHEP audio arrives already mixed into the subscribed track; there is nothing to turn off.
-    expect(
-      glassesLc3UplinkSupported({...supported, videoSource: {type: "whep", url: "https://x/whep"}}),
-    ).toBe(false)
+    expect(glassesLc3UplinkSupported({...supported, videoSource: {type: "whep", url: "https://x/whep"}})).toBe(false)
     expect(glassesLc3UplinkSupported({...supported, audioSource: "phone"})).toBe(false)
     // An older Mentra App keeps the audio track it has always used rather than joining mute.
     expect(glassesLc3UplinkSupported({...supported, hasPushOutgoingPcm: false})).toBe(false)
@@ -805,9 +840,7 @@ describe("glasses LC3 microphone uplink", () => {
     expect(state.micTransport).toBe("ble-lc3")
     expect(acsMeetingService.glassesLc3UplinkActive()).toBe(true)
     expect(micListeners.has("mic_pcm")).toBe(true)
-    expect(native.join).toHaveBeenCalledWith(
-      expect.objectContaining({audioDelayMs: SOFTAP_LC3_AUDIO_DELAY_MS}),
-    )
+    expect(native.join).toHaveBeenCalledWith(expect.objectContaining({audioDelayMs: SOFTAP_LC3_AUDIO_DELAY_MS}))
   })
 
   test("a host that cannot take PCM keeps the published audio track and never pins", async () => {
@@ -1441,11 +1474,20 @@ describe("waitForFirstFrame", () => {
   test("preserves the final ACS disconnect code for incident reports", async () => {
     const native = await joinedNative()
     native.emit("onState", {
-      state: "disconnected", muted: false, endReason_code: 403, endReason_subcode: 12345,
+      state: "disconnected",
+      muted: false,
+      endReason_code: 403,
+      endReason_subcode: 12345,
     })
     expect(acsMeetingService.getState().callEndReason).toEqual({code: 403, subcode: 12345})
+    expect(acsMeetingService.getState().endReason).toEqual({code: 403, subcode: 12345})
+    // The disconnect retires this native generation. Its trailing idle must not erase the
+    // diagnostic reason before the host finishes teardown.
     native.emit("onState", {state: "idle", muted: false})
+    expect(acsMeetingService.getState().callEndReason).toEqual({code: 403, subcode: 12345})
+    await acsMeetingService.leave("com.mentra.call")
     expect(acsMeetingService.getState().callEndReason).toBeUndefined()
+    expect(acsMeetingService.getState().endReason).toBeUndefined()
   })
 
   test("rejects when the feed fails rather than waiting out the timeout", async () => {
@@ -1502,5 +1544,45 @@ describe("waitForFirstFrame", () => {
     native.emit("onState", {state: "connected", muted: false, mediaSource: "live"})
 
     await expect(acsMeetingService.waitForFirstFrame(0)).resolves.toBeUndefined()
+  })
+})
+
+describe("waitUntilMediaLive", () => {
+  afterEach(async () => {
+    await acsMeetingService.leave("com.mentra.call")
+    setAcsMeetingNativeForTests(undefined)
+  })
+
+  async function joinedNative() {
+    const native = fakeNative()
+    setAcsMeetingNativeForTests(native)
+    await acsMeetingService.join("com.mentra.call", {
+      meetingUrl: "https://teams.microsoft.com/l/meetup-join/x",
+      token: "tok",
+      videoSource: {type: "softap"},
+    })
+    return native
+  }
+
+  test("a standing failed feed does not abort the wait the way join does", async () => {
+    const native = await joinedNative()
+    native.emit("onState", {state: "connected", muted: false, mediaSource: "failed"})
+    const waiting = acsMeetingService.waitUntilMediaLive(60_000)
+    native.emit("onState", {state: "connected", muted: false, mediaSource: "failed"})
+    native.emit("onState", {state: "connected", muted: false, mediaSource: "live"})
+    await expect(waiting).resolves.toBe(true)
+  })
+
+  test("times out false when ingest never returns", async () => {
+    const native = await joinedNative()
+    native.emit("onState", {state: "connected", muted: false, mediaSource: "failed"})
+    await expect(acsMeetingService.waitUntilMediaLive(10)).resolves.toBe(false)
+  })
+
+  test("a leave mid-wait resolves false instead of stranding the republish loop", async () => {
+    await joinedNative()
+    const waiting = acsMeetingService.waitUntilMediaLive(60_000)
+    await acsMeetingService.leave("com.mentra.call")
+    await expect(waiting).resolves.toBe(false)
   })
 })

@@ -90,6 +90,14 @@ export interface MeetingOutgoingVideo {
   maxBitrateBps: number
 }
 
+/**
+ * Which path the wearer took into the call: a meeting this app created, or a link they joined.
+ *
+ * Diagnostic only — the host behaves identically either way — but it is stamped on the host and
+ * native traces, so a quality comparison between the two paths can be made from one capture.
+ */
+export type MeetingOrigin = "created" | "joined"
+
 export interface MeetingJoinOptions {
   provider: MeetingProvider
   meetingUrl: string
@@ -98,6 +106,7 @@ export interface MeetingJoinOptions {
   token: string
   displayName?: string
   video?: MeetingOutgoingVideo
+  origin?: MeetingOrigin
 }
 
 export type MeetingParticipantState = "idle" | "connecting" | "connected" | "lobby" | "hold" | "disconnected"
@@ -116,15 +125,12 @@ export interface MeetingState {
   state: MeetingPhase
   muted: boolean
   error?: string
+  /** Provider termination details, including Teams' invalid meeting-link codes. */
+  endReason?: MeetingEndReason
   meetingUrl?: string
   provider?: MeetingProvider
   audioSource?: "glasses" | "phone"
-  audioSourceReason?:
-    | "explicit"
-    | "current-mic"
-    | "ranking"
-    | "fallback-glasses-connected"
-    | "fallback-no-glasses"
+  audioSourceReason?: "explicit" | "current-mic" | "ranking" | "fallback-glasses-connected" | "fallback-no-glasses"
   activeStream?: "none" | "virtual" | "local"
   audioSafety?: "safe" | "degraded" | "unsafe"
   /**
@@ -151,6 +157,29 @@ export interface MeetingState {
 }
 
 export type MeetingMediaSource = "idle" | "connecting" | "live" | "failed"
+
+export interface MeetingEndReason {
+  code?: number
+  subcode?: number
+  message?: string
+}
+
+/** Older hosts omit this field; malformed values must not become provider error codes. */
+export function parseMeetingEndReason(raw: unknown): MeetingEndReason | undefined {
+  if (!raw || typeof raw !== "object") return undefined
+  const value = raw as Record<string, unknown>
+  const number = (field: unknown): number | undefined =>
+    typeof field === "number" && Number.isFinite(field) ? field : undefined
+  const code = number(value.code)
+  const subcode = number(value.subcode)
+  const message = typeof value.message === "string" && value.message ? value.message : undefined
+  if (code === undefined && subcode === undefined && message === undefined) return undefined
+  return {
+    ...(code !== undefined ? {code} : {}),
+    ...(subcode !== undefined ? {subcode} : {}),
+    ...(message !== undefined ? {message} : {}),
+  }
+}
 
 /**
  * One runtime capability.
@@ -243,7 +272,14 @@ export function parseMeetingSoftApProgress(raw: unknown): MeetingSoftApProgress 
   }
 }
 
-const PARTICIPANT_STATES: ReadonlySet<string> = new Set(["idle", "connecting", "connected", "lobby", "hold", "disconnected"])
+const PARTICIPANT_STATES: ReadonlySet<string> = new Set([
+  "idle",
+  "connecting",
+  "connected",
+  "lobby",
+  "hold",
+  "disconnected",
+])
 
 const MEDIA_SOURCES: ReadonlySet<string> = new Set(["idle", "connecting", "live", "failed"])
 
@@ -317,6 +353,7 @@ export class MeetingModule {
           videoSource,
           token: options.token,
           displayName: options.displayName,
+          ...(options.origin ? {origin: options.origin} : {}),
           ...(options.video ? {video: options.video} : {}),
         },
         {timeoutMs: 0},
@@ -413,6 +450,7 @@ export class MeetingModule {
       state: event.state,
       muted: Boolean(event.muted),
       error: event.error,
+      endReason: parseMeetingEndReason(event.endReason),
       meetingUrl: event.meetingUrl,
       provider: event.provider,
       audioSource: event.audioSource,
