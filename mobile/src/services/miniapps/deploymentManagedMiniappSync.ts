@@ -1,6 +1,7 @@
 import {appRegistry} from "@mentra/engine-host-internal"
 import {Directory, File, Paths} from "expo-file-system"
 
+import {shouldHideMiniapp} from "@/constants/miniapps"
 import type {ActiveDeployment, DeploymentManagedMiniapp} from "@/services/deployment"
 
 import {sha256Hex} from "./preinstalledMiniappSync"
@@ -222,9 +223,17 @@ async function syncWorkspace(deployment: Extract<ActiveDeployment, {kind: "works
   const currentEntries = new Map<string, ManagedInstallRecord>()
   for (const entry of [...(state?.entries ?? []), ...recoveredEntries]) currentEntries.set(recordKey(entry), entry)
   const nextEntries = new Map(currentEntries)
-  const desiredNames = new Set(deployment.manifest.miniapps.managed.map((entry) => entry.packageName))
+  const desiredNames = new Set(
+    deployment.manifest.miniapps.managed
+      .filter((entry) => !shouldHideMiniapp(entry.packageName))
+      .map((entry) => entry.packageName),
+  )
 
   for (const entry of deployment.manifest.miniapps.managed) {
+    if (shouldHideMiniapp(entry.packageName)) {
+      console.log(`${LOG_TAG}: skipping platform-hidden ${entry.packageName}@${entry.version}`)
+      continue
+    }
     const previous = [...currentEntries.values()].find(
       (candidate) => candidate.packageName === entry.packageName && candidate.version === entry.version,
     )
