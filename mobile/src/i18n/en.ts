@@ -422,7 +422,6 @@ const en = {
     updateFile: "File {{current}} of {{total}} · {{component}}",
     updatePart: "Update {{current}} of {{total}} · {{component}}",
     phoneFileProgress: "Each file downloads separately. Progress is for the current file.",
-    transferFileProgress: "Progress is for this file’s transfer from your phone.",
     checkingForUpdates: "Checking for updates",
     checkingForUpdatesMessage:
       "Connected devices will perform automatic updates. Automatic updates can be disabled in Device Settings",
@@ -803,6 +802,10 @@ const en = {
     androidInnerShadow: "Inner shadow",
   },
   debugSettings: {
+    otaPreview: "OTA Preview",
+    otaPreviewSubtitle: "Browse update screens with sample data",
+    otaPreviewPage: "Preview page",
+    otaPreviewHint: "Sample data · Update buttons are inactive",
     debugConsole: "Debug Console",
     debugConsoleSubtitle: "Enable the debug console.",
     miniappScanTitle: "Scan Mini App QR",
