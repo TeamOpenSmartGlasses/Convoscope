@@ -3,6 +3,7 @@ import {appRegistry} from "@mentra/engine-host-internal"
 import {Directory, File, Paths} from "expo-file-system"
 import semver from "semver"
 
+import {shouldHideMiniapp} from "@/constants/miniapps"
 import {cloudClient} from "@/services/cloudClient"
 
 const LOG_TAG = "PreinstalledMiniappSync"
@@ -43,6 +44,10 @@ function isMobileVersionSupported(entry: PreinstalledMiniappRegistryEntry): bool
 }
 
 function shouldInstall(entry: PreinstalledMiniappRegistryEntry): boolean {
+  if (shouldHideMiniapp(entry.packageName)) {
+    console.log(`${LOG_TAG}: skipping ${entry.packageName}@${entry.version} — hidden on this platform`)
+    return false
+  }
   if (!isMobileVersionSupported(entry)) {
     console.log(
       `${LOG_TAG}: skipping ${entry.packageName}@${entry.version} — mobile ${MOBILE_APP_VERSION} outside [${entry.minMobileVersion ?? "*"}, ${entry.maxMobileVersion ?? "*"}]`,
