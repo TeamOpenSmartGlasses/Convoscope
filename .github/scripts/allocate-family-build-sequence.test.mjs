@@ -17,7 +17,7 @@ import {familyBuildNumber} from "./release-family.mjs"
 const marker = (version, sequence) => ({name: markerAssetName(familyBuildNumber(version, sequence))})
 const owner = "coordinated-run:123"
 
-test("a new family starts at sequence 1 and every later run takes the next free number", () => {
+test("a new family starts at sequence 1 and every later run takes the next free number above markers and ASG pairs", () => {
   assert.deepEqual(allocateFamilyBuildNumber({assets: [], baseVersion: "3.1.1", owner}), {
     familyBaseVersion: "3.1.1",
     buildNumber: familyBuildNumber("3.1.1", 1),
@@ -34,12 +34,14 @@ test("a new family starts at sequence 1 and every later run takes the next free 
     {name: `mentra-live-asg-${familyBuildNumber("3.1.1", 9)}-${"a".repeat(64)}.apk`},
     {name: "mentra-live-asg-100000173-" + "a".repeat(64) + ".apk"},
   ]
+  // An ASG pair numbered before markers existed holds its number too.
   assert.deepEqual(recordedFamilyBuildNumbers(assets, "3.1.1"), [
     familyBuildNumber("3.1.1", 1),
     familyBuildNumber("3.1.1", 2),
     familyBuildNumber("3.1.1", 5),
+    familyBuildNumber("3.1.1", 9),
   ])
-  assert.equal(allocateFamilyBuildNumber({assets, baseVersion: "3.1.1", owner}).sequence, 6)
+  assert.equal(allocateFamilyBuildNumber({assets, baseVersion: "3.1.1", owner}).sequence, 10)
   assert.equal(allocateFamilyBuildNumber({assets, baseVersion: "3.2.0", owner}).sequence, 41)
   assert.equal(allocateFamilyBuildNumber({assets, baseVersion: "3.3.0", owner}).sequence, 1)
 })

@@ -145,7 +145,14 @@ jobs:
             release_id=$(jq -er .id <<< "$release")
             assets=$(gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/releases/$release_id/assets?per_page=100" | jq 'add // []')
           fi
-          printf '%s\n' "$assets" > family-container-assets.json
+          # ASG pairs numbered before markers existed live in the shared ASG
+          # release; their numbers are taken too.
+          asg_assets='[]'
+          if asg_release=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/mentra-coordinated-asg" 2>/dev/null); then
+            asg_release_id=$(jq -er .id <<< "$asg_release")
+            asg_assets=$(gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/releases/$asg_release_id/assets?per_page=100" | jq 'add // []')
+          fi
+          jq -n --argjson family "$assets" --argjson asg "$asg_assets" '$family + $asg' > family-container-assets.json
           node .github/scripts/allocate-family-build-sequence.mjs allocate \
             --assets family-container-assets.json \
             --base-version "$base_version" \
