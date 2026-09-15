@@ -46,6 +46,8 @@ export async function waitFor(checks: Check[], timeoutMs = 10000): Promise<Snaps
 
 export async function executeSteps(steps: Step[], context: Context, report: Report) {
   const checkSize = (state: Snapshot) => {
+    if (state.frontmostBundleId === "com.apple.loginwindow")
+      throw new Error("The macOS session is locked; unlock it before starting another replay")
     const initial = report.metadata.window as Frame | undefined
     if (!initial) report.metadata.window = state.window
     else if (Math.abs(initial.width - state.window.width) >= 2 || Math.abs(initial.height - state.window.height) >= 2)

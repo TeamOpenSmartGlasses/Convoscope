@@ -153,6 +153,8 @@ export class Report {
   }
 
   async startVideo() {
+    if ((await command<Doctor>({op: "doctor"})).frontmostBundleId === "com.apple.loginwindow")
+      throw new Error("The macOS login/lock screen is foreground; unlock this user session before replay")
     const disk = await statfs(this.directory)
     const availableBytes = disk.bavail * disk.bsize
     this.metadata.diskAvailableBytes = availableBytes

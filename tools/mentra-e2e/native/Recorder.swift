@@ -15,10 +15,16 @@ final class RecordingObserver: NSObject, SCRecordingOutputDelegate, SCStreamOutp
   private var changedAt: Double = 0
   private var observedAt: Double = 0
   private var frameStatus: SCFrameStatus?
+  private var frameCounts: [Int: Int] = [:]
 
   func state() -> (Bool, Bool, String?, Double?) {
     lock.lock(); defer { lock.unlock() }
     return (started, finished, failure, firstPTS)
+  }
+
+  func diagnostic() -> String {
+    lock.lock(); defer { lock.unlock() }
+    return "recording started=\(started), frame status counts=\(frameCounts), complete image=\(latestBuffer != nil)"
   }
 
   func recordingOutputDidStartRecording(_: SCRecordingOutput) {
@@ -45,6 +51,7 @@ final class RecordingObserver: NSObject, SCRecordingOutputDelegate, SCStreamOutp
     lock.lock()
     defer { lock.unlock() }
     frameStatus = status
+    frameCounts[rawStatus, default: 0] += 1
     // Idle means the window server observed an unchanged screen. It confirms
     // liveness without replacing the last complete image with an empty buffer.
     if status == .complete || status == .idle {
@@ -148,7 +155,7 @@ extension Driver {
     }
     guard let origin = observer.state().3, observer.state().0 else {
       try? await stream.stopCapture()
-      throw DriverFailure("Video did not produce its first frame")
+      throw DriverFailure("Video did not produce its first frame: \(observer.diagnostic())")
     }
     func timestamp() -> Double {
       max(0, CMClockGetTime(CMClockGetHostTimeClock()).seconds - origin)
