@@ -553,8 +553,6 @@ class LocalMiniappRuntime {
    */
   public onLivenessTimeout: ((packageName: string) => void) | null = null
 
-  /** Pending cloud requests: requestId → packageName that originated the request. */
-  private pendingCloudRequests: Map<string, {packageName: string; envelopeRequestId?: string}> = new Map()
   private speechRuns = new Map<string, SpeechRun>()
 
   // Browser fallback token auth — HMAC-signed blob with a phone-local
@@ -757,90 +755,6 @@ class LocalMiniappRuntime {
     this.initialized = true
     console.log(`${LOG_TAG}: initialize()`)
     this.ensurePingLoop()
-  }
-
-  /**
-   * Handle an incoming cloud message forwarded by SocketComms
-   * (phone_stream_status, phone_managed_stream_status).
-   *
-   * Routes the response back to the originating miniapp via the requestId
-   * that was stored when the miniapp first made the request.
-   */
-  public handleCloudMessage(msg: any): void {
-    const requestId = msg.requestId as string | undefined
-    const msgType = msg.type as string
-
-    console.log(`${LOG_TAG}: Cloud message: ${msgType}, requestId=${requestId ?? "none"}`)
-
-    if (!requestId) {
-      console.warn(`${LOG_TAG}: Cloud message ${msgType} has no requestId, cannot route`)
-      return
-    }
-
-    const pending = this.pendingCloudRequests.get(requestId)
-    if (!pending) {
-      console.warn(`${LOG_TAG}: No pending request for requestId=${requestId}`)
-      return
-    }
-
-    this.pendingCloudRequests.delete(requestId)
-
-    switch (msgType) {
-      case "phone_stream_status": {
-        // Unreachable for phone-orchestrated streams (the coordinator owns
-        // their lifecycle and never registers a pending cloud request).
-        // Retained as a safety net for any legacy registration path.
-        this.sendToMiniapp(pending.packageName, {
-          type: MiniappResponseType.EVENT,
-          streamType: "stream_status",
-          data: {
-            streamId: msg.streamId,
-            status: msg.status,
-            errorDetails: msg.errorDetails,
-          },
-        })
-        // Re-register for ongoing status updates (streams send multiple status messages)
-        this.pendingCloudRequests.set(requestId, pending)
-        break
-      }
-
-      case "phone_managed_stream_status": {
-        if (msg.status === "connected" || msg.status === "active") {
-          // Managed stream is ready — send back the playback URLs as the request result
-          this.sendResult(pending.packageName, pending.envelopeRequestId, true, {
-            streamId: msg.streamId,
-            hlsUrl: msg.hlsUrl,
-            dashUrl: msg.dashUrl,
-            webrtcUrl: msg.webrtcUrl,
-          })
-        }
-        // Forward all statuses as events too
-        this.sendToMiniapp(pending.packageName, {
-          type: MiniappResponseType.EVENT,
-          streamType: "stream_status",
-          data: {
-            streamId: msg.streamId,
-            status: msg.status,
-            hlsUrl: msg.hlsUrl,
-            dashUrl: msg.dashUrl,
-            webrtcUrl: msg.webrtcUrl,
-          },
-        })
-        // Re-register for ongoing updates
-        this.pendingCloudRequests.set(requestId, pending)
-        break
-      }
-
-      default:
-        console.warn(`${LOG_TAG}: Unknown cloud message type: ${msgType}`)
-    }
-  }
-
-  /**
-   * Register a pending cloud request so we can route the response back.
-   */
-  public registerPendingCloudRequest(requestId: string, packageName: string, envelopeRequestId?: string): void {
-    this.pendingCloudRequests.set(requestId, {packageName, envelopeRequestId})
   }
 
   // ===========================================================================
@@ -1112,13 +1026,6 @@ class LocalMiniappRuntime {
     // field is enough.
     app.requestedLocationRate = null
     this.recomputeLocationTier()
-
-    // Clean up any pending cloud requests from this app
-    for (const [reqId, pending] of this.pendingCloudRequests) {
-      if (pending.packageName === packageName) {
-        this.pendingCloudRequests.delete(reqId)
-      }
-    }
 
     // Release any display real estate this app held — if it owned the
     // current on-glasses frame, this clears the glasses (or restores the
@@ -3608,10 +3515,10 @@ class LocalMiniappRuntime {
   }
 
   /**
-   * Stream handlers — dispatched to the engine PhoneStreamCoordinator. For managed
-   * streams the coordinator additionally calls the v2 client REST route to
-   * provision Cloudflare. Cloud-SDK apps (third-party developers) use a
-   * separate cloud-side path that does not pass through here.
+   * Stream handlers — dispatched to PhoneStreamCoordinator on the phone.
+   * Managed streams also use Cloud V2 REST calls to provision resources,
+   * poll ingest status, and tear down the managed stream. Miniapp JavaScript
+   * runs locally in the Mentra App.
    */
   private async handleStreamStart(
     packageName: string,
@@ -5128,11 +5035,11 @@ class LocalMiniappRuntime {
    * Forward a streamed event to all miniapps subscribed to the given stream.
    *
    * Event name translation:
-   * - Cloud sends "head_up" → miniapp protocol uses "head_position" (HEAD_POSITION)
-   * - Cloud sends "VAD" (uppercase) → miniapp protocol uses "vad" (lowercase)
+   * - Incoming "head_up" → miniapp protocol uses "head_position" (HEAD_POSITION)
+   * - Incoming "VAD" (uppercase) → miniapp protocol uses "vad" (lowercase)
    */
   public forwardEvent(streamType: string, data: unknown, transcriptionSource?: TranscriptionEventSource): void {
-    // Translate cloud event names to miniapp protocol stream types
+    // Normalize incoming event names to miniapp protocol stream types
     const normalizedStream = this.normalizeStreamType(streamType)
 
     // Collect all subscribers: exact match, plus wildcard matches for streams
@@ -5291,10 +5198,10 @@ class LocalMiniappRuntime {
   }
 
   /**
-   * Translate cloud event names to miniapp stream type values.
+   * Normalize incoming event names to miniapp stream type values.
    */
   private normalizeStreamType(cloudEventName: string): string {
-    // Cloud / Bluetooth SDK → miniapp protocol translations.
+    // Incoming event names → miniapp protocol translations.
     // Bluetooth SDK event names don't always match the miniapp wire values.
     switch (cloudEventName) {
       case "head_up":
@@ -5916,7 +5823,6 @@ class LocalMiniappRuntime {
     }
 
     // Belt-and-suspenders: clear any remaining state
-    this.pendingCloudRequests.clear()
     const hadButtonPressSubscribers = this.getButtonPressSubscribers().length > 0
     this.streamSubscribers.clear()
     if (hadButtonPressSubscribers) {

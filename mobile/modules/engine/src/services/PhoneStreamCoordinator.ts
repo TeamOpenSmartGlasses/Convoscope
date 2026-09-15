@@ -23,8 +23,7 @@
  *
  * Important: this is the ONLY place that mints `streamId`s for phone-owned
  * streams. We use a `phone-` prefix so they're trivially distinguishable from
- * cloud-minted IDs in logs and from cloud-SDK app streams that flow through
- * the legacy path.
+ * cloud-minted managed-stream resource IDs in logs.
  *
  * BLE link loss is a SUSPENDED state, not a failure:
  *   ASG owns the ten-second phone/controller liveness deadline. The coordinator
