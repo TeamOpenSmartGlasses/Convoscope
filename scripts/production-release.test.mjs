@@ -16,6 +16,8 @@ import {
   validateAdvanceOptions,
   validateExampleOptions,
   validatePackagesOptions,
+  carriedDeferralReason,
+  resubmitStep,
 } from "./production-release.mjs"
 
 const baseRecord = {
@@ -281,4 +283,73 @@ test("dispatches the production example from the promoted beta and never promise
   const message = exampleConfirmationMessage({beta_identity: "3.1.0-beta.212"})
   assert.match(message, /example 3\.1\.0 from the public 3\.1\.0 packages/)
   assert.match(message, /never releases the example to a store/)
+})
+
+test("resubmit walks a store rejection to the next attempt's candidates and stops there", () => {
+  const reference = (kind) => ({kind, url: "https://example.com/evidence.json", sha256: "c".repeat(64)})
+  const beta = "3.1.0-beta.60"
+  const submitted = {
+    ...baseRecord,
+    state: "stores-submitted",
+    evidence: [reference("production-mobile-n-compatibility-deferred")],
+  }
+  // The rejected attempt is aborted first, whatever main already contains.
+  assert.deepEqual(resubmitStep({record: submitted, betaIdentity: beta, mainHasBeta: true}), {
+    kind: "abort",
+    attempt: 1,
+  })
+  assert.throws(
+    () => resubmitStep({record: {...baseRecord, state: "finalizing"}, betaIdentity: beta, mainHasBeta: true}),
+    /100 percent rollout checkpoint/,
+  )
+  const aborted = {...submitted, state: "aborted"}
+  // Then the corrected beta reaches main, then the next attempt starts.
+  assert.deepEqual(resubmitStep({record: aborted, betaIdentity: beta, mainHasBeta: false, aborted}), {kind: "promote"})
+  assert.deepEqual(resubmitStep({record: aborted, betaIdentity: beta, mainHasBeta: true, aborted}), {kind: "start"})
+  assert.throws(
+    () => resubmitStep({record: {...baseRecord, state: "completed"}, betaIdentity: beta, mainHasBeta: true}),
+    /nothing to resubmit/,
+  )
+  // The next attempt follows the state machine; workflows run, the deferred
+  // compatibility gate is carried, candidate acceptance is left to a human.
+  const next = (state, evidence = []) => ({
+    ...baseRecord,
+    attempt: 2,
+    promotionId: "mentra-3.1.0-attempt-2",
+    state,
+    evidence,
+    selectedBeta: {...baseRecord.selectedBeta, identity: beta, releaseSetId: `mentra-${beta}`},
+  })
+  assert.deepEqual(resubmitStep({record: next("staging-compatible"), betaIdentity: beta, mainHasBeta: true, aborted}), {
+    kind: "workflow",
+    workflow: "production-release-cloud.yml",
+    phase: "preflight",
+  })
+  assert.deepEqual(resubmitStep({record: next("cloud-deployed"), betaIdentity: beta, mainHasBeta: true, aborted}), {
+    kind: "defer",
+    check: "production-mobile-n-compatibility",
+  })
+  const attestedBefore = {...aborted, evidence: [reference("production-mobile-n-compatibility")]}
+  assert.equal(
+    resubmitStep({record: next("cloud-deployed"), betaIdentity: beta, mainHasBeta: true, aborted: attestedBefore}).kind,
+    "stop",
+  )
+  assert.equal(
+    resubmitStep({record: next("mobile-candidates-uploaded"), betaIdentity: beta, mainHasBeta: true, aborted}).kind,
+    "stop",
+  )
+  assert.throws(
+    () =>
+      resubmitStep({
+        record: {...next("staging-compatible"), selectedBeta: baseRecord.selectedBeta},
+        betaIdentity: beta,
+        mainHasBeta: true,
+        aborted,
+      }),
+    /already selected 3\.1\.0-beta\.57/,
+  )
+  assert.match(
+    carriedDeferralReason(aborted, "production-mobile-n-compatibility", "fix"),
+    /Carried from attempt 1 .* fix$/,
+  )
 })
