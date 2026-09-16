@@ -1,0 +1,213 @@
+# Set up another Mac or Mac Mini
+
+This guide provisions the standalone harness and the optional local app build. Replay does not require an AI agent or the monorepo's dependencies. The target is the real iOS app running on an Apple Silicon Mac, installed through TestFlight or built locally for **My Mac (Designed for iPhone/iPad)**.
+
+## 1. Prepare the Mac
+
+1. Use an Apple Silicon Mac with a logged-in graphical desktop. Keep a display connected for initial qualification; a headless Mac Mini has not been qualified.
+2. Install macOS compatible with the TestFlight app. Match the qualified machine's macOS version when reproducing a failure. The native recorder requires macOS 15 or newer; the initial host is macOS 26.6.2. Older OS versions have not been qualified.
+3. Install Apple's command line tools, or Xcode with its command line tools selected. The helper uses Swift 6 and the macOS SDK's AppKit, ApplicationServices, CoreImage and ScreenCaptureKit. It does not build the Mentra App.
+4. Install Bun from its official distribution. Initial development uses Bun **1.4.0** and Swift **6.4**. Keep the actual versions in the run evidence; changing versions requires rerunning the driver proof.
+5. Start with the Mac awake, unlocked, and available. The recorder automatically runs Apple's `/usr/bin/caffeinate` with idle-system, idle-display and user-activity assertions while recording. Cleanup releases them after success or failure; the assertions also end when the runner exits or after four hours. This does not edit system preferences, move the pointer or activate Mentra. Other people may work in other apps. You may move the window; keep its size fixed and do not minimize or close it during a run. Manually locking the Mac or closing the laptop lid remains outside this keep-awake guarantee.
+
+Verify the tools:
+
+```sh
+uname -m
+sw_vers
+xcode-select -p
+swiftc --version
+bun --version
+```
+
+If the Apple tools are missing, use Apple's installer:
+
+```sh
+xcode-select --install
+```
+
+Bun installation instructions: <https://bun.com/docs/installation>. Use a consistent version across test machines. `swiftformat` is needed only when editing Swift source, not when replaying tests. `ffprobe`/FFmpeg is useful for independent video verification, but recording uses native Apple frameworks.
+
+For a longer discovery/build work session between recordings, run `caffeinate -diu -t 14400` in a separate terminal. It expires after four hours; Control-C releases it earlier. `pmset -g assertions` shows the active `caffeinate` assertions. This is a temporary session, not a change to the Mac's permanent lock policy.
+
+## 2. Install the real app
+
+### Local source build (for developing the routine)
+
+Use this route to test the PR's accessibility changes immediately. It needs full Xcode, its iOS platform support, CocoaPods, Bun, and the mobile dependencies. `bun ios` currently targets a physical iPhone/iPad; it does not select the Mac. The PR's existing iOS CI only performs an unsigned compile and does not publish an installable IPA.
+
+After checking out the branch in section 3:
+
+1. Open Xcode once, finish component installation and select it with `xcode-select` if necessary. Initial host: Xcode 27.0 (27A266a).
+2. In **Xcode → Settings → Accounts**, sign in to the Apple developer account for the app's team. Ensure **Manage Certificates** has a valid Apple Development certificate with its private key. Let Xcode create/update the development provisioning profile and register this Mac when required. Do not copy another Mac's Keychain database.
+3. Configure `mobile/.env` using the normal mobile development setup. Provide the correct backend settings, Firebase configuration files, Mapbox public runtime token and Mapbox Downloads:Read credentials via the team's existing secure setup. SPM may ask for GitHub Keychain access on first resolution; approve the intended Xcode access. Never paste credentials into build scripts or Git.
+4. Allow sufficient disk space for dependencies, Pods, Swift packages and derived data. The native build is substantially larger than the standalone replay helper. Keep at least 10 GiB free after building for regular replay; the runner rejects less than 5 GiB before starting capture. These are operational reserves, not a guarantee against system pressure. On this Mac, only 3.3 GiB remained and macOS's `replayd` received `cacheDeleteUrgencyHigh`, stopping active captures with ScreenCaptureKit error `-3821`. Completed recordings were retained. Reclaim this worktree's regenerable Xcode caches when no build is running: `mobile/build/ios-mac/Build/Intermediates.noindex`, `ModuleCache.noindex`, `SDKExplicitPrecompiledModules` and `SourcePackages/repositories` under the same derived-data folder. Keep `Applications`, the build manifest and `.test-results/mentra-e2e` to retain the installed build and test evidence. The next native build recreates deleted caches.
+
+```sh
+cd mobile
+bun install --frozen-lockfile
+bun ios:mac
+```
+
+`ios:mac` runs Expo prebuild without deleting the native project, the shared CocoaPods installer, then `xcodebuild` for this Mac's iOS-on-Mac destination. It defaults to **Release** with bundled JavaScript: subsequent runs need no Metro server. Development signing is local; this command does not upload to TestFlight. After a successful build it normally quits any running app with the same bundle ID and opens the built app with foreground activation disabled. It preserves the app's existing container and does not clear account or pairing data.
+
+The Mac build applies the app's configured deployment minimum to dependency targets, because Xcode 27 rejects old Pod minimums below iOS 15 on this destination. The checked-in Expo Router patch adds its missing iOS 16 availability check; it does not upgrade the dependency or raise the app's support minimum. Derived data lives outside `mobile/ios/` so CocoaPods' project scan cannot try to rewrite read-only Swift package checkouts.
+
+For a compile without replacing the running process, use `bun ios:mac --build-only`. For iteration with Metro, run `bun start` separately and use `bun ios:mac --debug`. Do not use the repository's release/upload scripts for this local lane.
+
+Build products and `build-manifest.json` live in `mobile/build/ios-mac/`. The manifest records configuration, destination, source commit/status, source diff hash and executable/JavaScript hashes. A dirty source build is recorded as dirty; it is not evidence that the binary exactly equals the recorded commit. The harness separately records the installed app identity—verify the running binary before using a local build as qualification evidence.
+
+For local-build runs, pass `--build-manifest mobile/build/ios-mac/build-manifest.json` to the harness `run` or `discover` command from the repository root. It compares the running app's bundle ID, executable and bundled JavaScript hashes with the manifest and fails before UI actions if they differ. Relaunch resolves an outer registered iOS-on-Mac wrapper and accepts it only when both executable and JavaScript hashes match the running app. It cannot silently switch to another TestFlight/local build with the same bundle ID.
+
+If CocoaPods reports that its sources do not contain an already published pinned version, run `pod repo update`, then rerun the build. This resolved the initial Mac's stale WebRTC-SDK catalog. Do not downgrade a pinned dependency to work around a stale catalog.
+
+The local signed Release build, background launch, accessibility controls, sign-in and full 68-step routine have been exercised on the initial Mac. Record and qualify setup/launch gates independently on the second Mac.
+
+### TestFlight build
+
+1. Install TestFlight from Apple's App Store.
+2. Sign in with the Apple account that has access to the Mentra TestFlight build and accept the applicable TestFlight invitation.
+3. Install the intended Mentra iOS build on the Mac. This requires that the build is available for Apple Silicon Macs. If TestFlight does not offer it, resolve build/account availability before continuing; a simulator build is a different test target.
+4. Launch Mentra and leave its window open. Initial reference: bundle ID `com.mentra.mentra`, version `3.2.0`, build `320000235`.
+5. Install a build containing this branch’s app accessibility changes before qualifying the complete routine. The original build `320000235` lacks identifiers such as `miniapp.minimize` and `home.allApps.open`; the harness intentionally has no coordinate fallback. Source edits cannot change an already installed TestFlight binary. Follow [ACCESSIBILITY.md](ACCESSIBILITY.md) to validate native actions after installing the new build.
+6. Use English for the qualified routine. Record any changes from the reference build. Do not install a newer app during a run.
+
+There may be both `/Applications/Mentra.app` and a temporary iOS wrapper under `/var/folders/...`. Do not copy or hard-code the temporary wrapper path. The driver finds the running process by bundle ID and reads its actual bundle URL every invocation. Multiple running matches cause a setup failure rather than an arbitrary selection.
+
+## 3. Get this harness revision
+
+The working branch is `codex/mentra-e2e-harness`, based on `dev`. Once that branch is published, use a separate checkout/worktree on the Mac Mini:
+
+```sh
+git clone git@github.com:Mentra-Community/MentraOS.git MentraOS
+cd MentraOS
+git fetch origin codex/mentra-e2e-harness
+git worktree add ../MentraOS-e2e -b local/mentra-e2e origin/codex/mentra-e2e-harness
+cd ../MentraOS-e2e
+```
+
+The branch is published in [PR #4069](https://github.com/Mentra-Community/MentraOS/pull/4069). To transfer committed work without using the remote, create an incremental Git bundle on the source Mac and copy it to the Mac Mini:
+
+```sh
+# Source Mac, from the harness worktree, after committing the harness:
+git bundle create /tmp/mentra-e2e.bundle origin/dev..codex/mentra-e2e-harness
+
+# Mac Mini, in a clone that has fetched dev and contains the bundle prerequisites:
+git bundle verify /path/to/mentra-e2e.bundle
+git fetch /path/to/mentra-e2e.bundle codex/mentra-e2e-harness:refs/heads/local/mentra-e2e
+git worktree add ../MentraOS-e2e local/mentra-e2e
+```
+
+Check the expected commit with `git rev-parse HEAD`. Do not transfer credentials, Keychain databases, device pairings, or old macOS privacy databases. Run artifacts are local and ignored; copy any historical evidence separately if wanted. The current build wrapper is local too; build and sign anew on the destination Mac.
+
+## 4. Build and check permissions
+
+Run from the repository root, in the same terminal application you will use for replay:
+
+```sh
+bun run tools/mentra-e2e/run.ts doctor
+```
+
+The first invocation compiles the Swift helper into `.test-results/mentra-e2e/bin/mentra-driver`. Later invocations rebuild only when the native source or Swift toolchain changes.
+
+`doctor` must report the intended app identity, `accessibility: true` and `screenCapture: true` (`postEvents` is diagnostic only; the driver no longer injects input events). It exits nonzero when required access is missing. No test should be counted as passing when this preflight fails.
+
+macOS can attribute permissions to the **application launching the process**, rather than to the helper's filename:
+
+- In Terminal, expect **Terminal**; in another terminal, expect that application.
+- In this Codex desktop session, macOS displayed **ChatGPT** (`com.openai.codex`).
+- **Codex Computer Use** is a separate permission entry. Enabling it does not authorize terminal replay.
+
+Open **System Settings → Privacy & Security** and grant the responsible launcher:
+
+1. **Accessibility**, for inspecting and controlling Mentra's interface.
+2. **Screen & System Audio Recording**, for screenshots and video. The harness configures screen capture only; system audio and microphone capture are disabled.
+
+If the launcher is absent from the recording list, trigger the standard request from that launcher:
+
+```sh
+printf '%s' '{"op":"request-screen-capture"}' | .test-results/mentra-e2e/bin/mentra-driver
+```
+
+If macOS presents a choice to select a window or allow direct capture, direct capture is needed for unattended replay to identify Mentra without asking you to pick the window each run. The OS permission is broader than the actual capture filter: the recorder allows only the Mentra window and excludes other applications, the desktop and Dock.
+
+macOS may show **Quit & Reopen** / **Later** after a permission change. On the initial Mac, choosing **Later** and starting fresh helper processes was sufficient: `doctor` and real capture then worked. On the new Mac, verify instead of assuming. If either still fails, save any work, quit and reopen the responsible terminal application, and run `doctor` again. Do not reset all privacy permissions or modify the TCC database.
+
+Changing the launcher, checkout location, helper signature or toolchain can require rechecking permissions. Do not grant Full Disk Access or disable SIP for this harness.
+
+## 5. Verify the standalone driver before signing in
+
+After installing the accessibility changes, with Mentra on its signed-out welcome screen:
+
+```sh
+bun run tools/mentra-e2e/run.ts run --suite driver-proof
+bun run tools/mentra-e2e/run.ts run --suite driver-proof
+```
+
+The current proof requires the new `navigation.back` identifier. The original legacy proof passed twice on dev.235; those old passes do not qualify the stricter current revision. This opens Log In, enters a deliberately malformed email, verifies the real app's validation, dismisses it, clears the field, and returns to the welcome screen. It does not send bad-password requests or need account credentials.
+
+Each run prints its unique artifact folder. Both runs must exit zero. Open `index.html`, play `routine.mp4`, and click the English step descriptions to check that seeking works. Inspect the input/validation screenshots. Merely compiling or seeing a successful `doctor` is insufficient.
+
+The capture implementation takes screenshots from the same live stream as the video. Starting independent screenshot capture processes while recording caused recording-connection failures during development; use the runner's capture path rather than another recorder alongside it.
+
+## 6. Provide the test account at runtime
+
+For an account that has already completed onboarding, run the login suite from an interactive terminal:
+
+```sh
+bun run tools/mentra-e2e/run.ts run --suite login
+```
+
+This account reaches onboarding after logout as well as on initial sign-in. The small `login` probe expects an already configured home and therefore fails on this state; the full `no-glasses` routine explicitly covers the observed onboarding path. Run `onboarding` after the probe if preparing a new fixture. Preserve that result, finish fixture setup separately, and rerun once established. The runner prompts for the test account email and password without echoing them. Obtain the designated account credentials from the team's existing secure store or the person provisioning this Mac. They are deliberately absent from Git and this guide.
+
+For an unattended runner, inject `MENTRA_E2E_EMAIL` and `MENTRA_E2E_PASSWORD` into its environment using an existing secret manager. Do not put the password in shell command arguments, shell history, checked-in `.env` files, screenshot filenames or test fixtures. The current harness does not provision a new Keychain item automatically.
+
+The password stays in a secure UI field; do not use the visibility toggle during recording. Secure accessibility values are redacted in artifacts. Videos may still contain the test account's email and ordinary account content; keep them local unless deliberately shared.
+
+## 7. Establish the fixture through the real UI
+
+- **Unpaired** means no paired/selected device and no Phone Mode session. A physical device being powered off is not enough to establish this fixture.
+- **Paired-disconnected** preserves an existing pairing. It is a separate fixture; do not unpair the user's glasses just to satisfy a test.
+- **Phone Mode** connects a simulated device and has separate expectations.
+
+On this account, both initial login and login after logout reached onboarding. The ordinary **Set up with glasses → model selector → Back → relaunch** path reached home without choosing a device. This works because the app records onboarding completion before model selection. The setup suite documents that transition; it does not scan for or connect to glasses. Verify the resulting **Pair glasses** home state rather than trusting the click sequence.
+
+**Set up without glasses** can enter simulated pairing. Do not use it to prepare an unpaired run.
+
+Do not clear app storage, reset Keychain, or overwrite deployment/server settings. Record app/backend identity, theme, locale, account alias, wearable profile and window geometry with the run. Treat unavailable fixture setup as a setup gap.
+
+## 8. Operate and troubleshoot
+
+- Run one harness at a time. A per-user lock prevents two checkouts from driving the same app concurrently.
+- Keep the app window at the same size during a run. Capture targets the window independently of its desktop position. Before a normal relaunch, the recorder switches temporarily to an empty window allowlist; it then attaches the new Mentra window to the same video. Other applications stay excluded.
+- An assertion failure produces a nonzero exit and preserves the video, screenshots, accessibility snapshots, expected result, and timing. Inspect the failing step before rerunning.
+- A recording failure makes the run incomplete even if some UI assertions passed.
+- A locked desktop cannot supply usable window video. The runner rejects a foreground macOS login/lock screen before recording or performing the next action. Unlock the existing user session and start a new run; the harness never unlocks the Mac or changes its lock settings. During qualification, ScreenCaptureKit reported only idle frames with no initial image while `com.apple.loginwindow` was foreground.
+- Runs go to `.test-results/mentra-e2e/<timestamp>-<suite>-<suffix>/`. Keep failed runs alongside successful runs while debugging. No automatic artifact upload occurs.
+- App relaunch requires the recorder to reattach to the new process/window. The isolated `lifecycle-proof` suite passed three times on the initial TestFlight build; its latest run retained Safari as the foreground app and verified unchanged executable/JavaScript hashes. Qualify it again on the Mac Mini and as part of the full routine. A direct launch of TestFlight's temporary inner bundle failed with a beta-availability dialog during development; the driver now verifies and launches the matching installed wrapper instead.
+- Keep the design's physical-device limits: this Mac lane does not qualify BLE, firmware updates, glasses capture, SoftAP transfers or iPhone screen-off operation.
+
+Before accepting the Mac Mini as a test station, run the qualified no-glasses suite three times with zero manual correction, verify video chapter navigation, check deliberate selector/assertion failures, and record the installed app and harness revisions. Refer to the README and implementation plan for the currently qualified suites; a planned suite is not automatically implemented.
+
+## 9. Run the complete routine
+
+Start on English, signed-in, unpaired home, using the designated test account. Keep another app in front when verifying shared-desktop operation. The routine records the foreground application before/after each step. Since a person may click or move Mentra, a focus change is evidence rather than an automatic claim that the harness stole focus.
+
+```sh
+# From the repository root; credentials are prompted without echo.
+bun run tools/mentra-e2e/run.ts run --suite no-glasses --fixture unpaired --build-manifest mobile/build/ios-mac/build-manifest.json
+```
+
+Omit the manifest flag only for a TestFlight build whose source provenance is unknown. The full 70-step routine includes logout and signing back in. Use a test account, not a personal session. Appearance, paired-disconnected behavior and a separate store/detail surface are explicitly reported as not applicable to this fixture.
+
+On failure the remaining ordinary steps become `not-run`. If initial home was verified, recovery normally relaunches the same build, recognizes only home/authentication/onboarding, and restores the designated account through the already verified UI path when necessary. Recovery has separate screenshots/chapters and status; it never turns the original failure into a pass. No preference-changing steps are included, and storage, pairing, media and server settings are retained.
+
+## Launch dialogs and timeouts
+
+`bun ios:mac` creates the standard outer `Mentra.app/Wrapper/Mentra.app` layout with a `WrappedBundle` link. The signed inner app is unchanged. Directly opening the inner `.app` can cause the unsupported-on-this-Mac or invalid-beta dialogs seen during development; the build command now opens the wrapper.
+
+The background launcher monitors only Apple's notification/security dialog owners. A dialog must exactly name Mentra's Bluetooth request before its unique **Allow** or **OK** button can be pressed through accessibility. Recognized invalid/unsupported Mentra build dialogs are dismissed and reported as failures. Unrelated dialogs and Keychain requests are never accepted. Launch times out after 30 seconds; native replay commands and state assertions also have bounded deadlines. The handler compiles and normal launches have been verified; fresh OS permission dialogs have not been reset/recreated to claim coverage. Verify this gate during Mac Mini provisioning.
+
+The initial Xcode account/SPM Keychain permissions and the terminal launcher's Accessibility/Screen Recording permissions may require one human setup action. Complete those once, rerun `doctor`, and then replay. Do not reset the macOS permission database between runs. The harness captures only the Mentra window even when a system dialog is diagnosed; unrelated desktop content is not added to recordings.
+
+For independent artifact checks, install FFmpeg through your normal package manager (for example `brew install ffmpeg`), then run `bun tools/mentra-e2e/verify-run.ts <run-folder>`. Normal replay does not require FFmpeg.
