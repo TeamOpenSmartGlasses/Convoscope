@@ -53,6 +53,7 @@ No messages, feedback, account changes, model downloads, media mutations, device
 - Copied development `.env` values displayed v2.8.0 in Settings despite native v3.2.0. The local Mac build now supplies the canonical repository version to both prebuild and bundling.
 - All Apps bypassed platform exclusions and surfaced Mentra Call on iOS. Apply the existing platform policy before the user-hidden-app override.
 - ScreenCaptureKit stream termination was not forwarded to the recorder, so stale images could accompany later AX checks. Observe stream errors and require a recent complete/idle frame observation for each screenshot. The OS log identified disk cache purges (`cacheDeleteUrgencyHigh`) at both failed capture times; only 3.3 GiB of disk space remained. Remove this task's disposable Xcode caches, retain every run, and fail preflight below 5 GiB. A real interrupted restore run now fails immediately with error `-3821`, without claiming fresh evidence.
+- At the user's request, recording now holds scoped macOS keep-awake assertions. They release on report completion or process exit and expire after four hours. The native assertion test and a recorded relaunch probe pass; normal lock preferences and pointer/focus behavior are unchanged. This follow-up changes recording lifecycle management, not the qualified 70-step routine or app binary.
 
 ## Completion criterion
 

@@ -24,6 +24,8 @@ Credentials are prompted without echo. For unattended use, inject `MENTRA_E2E_EM
 
 The driver uses no mouse/keyboard injection or foreground activation. Per-step evidence records the foreground app. Human focus changes are recorded without attributing them to automation. Keep Mentra open at the same size; window capture follows its position, so you may move it out of the way. Only one harness run can own Mentra at a time.
 
+Each recording automatically holds macOS keep-awake assertions through `caffeinate`, preventing idle system/display sleep and declaring user activity without injecting input. They are released on success, failure or runner exit, with a four-hour maximum. No persistent lock settings are changed. Start with the Mac unlocked; manually locking it still stops the run. `run.json` records the keep-awake process and normal cleanup.
+
 A failure stops ordinary steps and retains its evidence. Recovery has separate steps and status, uses only recognized screens, and attempts to restore signed-in unpaired home. A successful recovery never turns the failed run into a pass.
 
 ## Other commands
@@ -59,6 +61,7 @@ Evidence version 2 records the latest window-server observation time for every s
 
 | Run folder | Result |
 | --- | --- |
+| `2026-09-16T00-12-31-228Z-lifecycle-proof-6b13b6` and `2026-09-16T00-12-52-266Z-accessibility-preflight-4619a3` | Keep-awake follow-up: recorded relaunch passed; intentionally running the miniapp preflight from home failed as expected. Both runs passed artifact checks and released their own macOS power assertions. The nine native checks also verify assertion creation and cleanup. |
 | `2026-09-15T23-34-29-745Z-no-glasses-0d7ee5` | Qualification 1: 70 passed, 3 exclusions, 90.998333-second video; all evidence and frame-liveness checks passed. |
 | `2026-09-15T23-36-01-585Z-no-glasses-2cdbc6` | Qualification 2: 70 passed, 3 exclusions, 93.303333-second video; all evidence and frame-liveness checks passed. |
 | `2026-09-15T23-37-35-919Z-no-glasses-e9b5c0` | Qualification 3: 70 passed, 3 exclusions, 90.773333-second video; all evidence and frame-liveness checks passed. |

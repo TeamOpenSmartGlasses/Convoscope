@@ -3,6 +3,7 @@ import {appendFile, mkdir, readFile, readdir, writeFile, open, statfs, unlink} f
 import {homedir} from "node:os"
 import {join, relative, resolve} from "node:path"
 import {bin, command, root, type Doctor, type Snapshot} from "./driver"
+import {KEEP_AWAKE_SECONDS, keepAwake} from "./keep-awake"
 import {Video} from "./video"
 
 export interface StepResult {
@@ -85,6 +86,7 @@ export class Report {
   started = new Date().toISOString()
   metadata: Record<string, unknown> = {}
   video?: Video
+  private awake?: ReturnType<typeof keepAwake>
   constructor(
     readonly suite: string,
     readonly secrets: string[],
@@ -163,6 +165,8 @@ export class Report {
       throw new Error(
         "Recording requires at least 5 GiB free on the artifact volume; macOS can stop capture during disk cache purges",
       )
+    this.awake = keepAwake()
+    this.metadata.keepAwake = {pid: this.awake.pid, timeoutSeconds: KEEP_AWAKE_SECONDS, released: false}
     this.video = new Video(join(this.directory, "routine.mp4"))
     const ready = await this.video.ready()
     this.metadata.video = {path: "routine.mp4", ...ready}
@@ -277,6 +281,11 @@ export class Report {
         cleanup += `; video finalization failed: ${String(error)}`
       }
       this.video = undefined
+    }
+    if (this.awake) {
+      await this.awake.stop()
+      this.metadata.keepAwake = {...(this.metadata.keepAwake as object), released: true}
+      this.awake = undefined
     }
     if (status === "passed") {
       try {

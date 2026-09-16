@@ -8,7 +8,7 @@ This guide provisions the standalone harness and the optional local app build. R
 2. Install macOS compatible with the TestFlight app. Match the qualified machine's macOS version when reproducing a failure. The native recorder requires macOS 15 or newer; the initial host is macOS 26.6.2. Older OS versions have not been qualified.
 3. Install Apple's command line tools, or Xcode with its command line tools selected. The helper uses Swift 6 and the macOS SDK's AppKit, ApplicationServices, CoreImage and ScreenCaptureKit. It does not build the Mentra App.
 4. Install Bun from its official distribution. Initial development uses Bun **1.4.0** and Swift **6.4**. Keep the actual versions in the run evidence; changing versions requires rerunning the driver proof.
-5. Keep the Mac awake, unlocked, and available during runs. Other people may work in other apps. The driver uses accessibility actions without activating Mentra or moving the pointer. You may move the window; keep its size fixed and do not minimize or close it during a run.
+5. Start with the Mac awake, unlocked, and available. The recorder automatically runs Apple's `/usr/bin/caffeinate` with idle-system, idle-display and user-activity assertions while recording. Cleanup releases them after success or failure; the assertions also end when the runner exits or after four hours. This does not edit system preferences, move the pointer or activate Mentra. Other people may work in other apps. You may move the window; keep its size fixed and do not minimize or close it during a run. Manually locking the Mac or closing the laptop lid remains outside this keep-awake guarantee.
 
 Verify the tools:
 
@@ -27,6 +27,8 @@ xcode-select --install
 ```
 
 Bun installation instructions: <https://bun.com/docs/installation>. Use a consistent version across test machines. `swiftformat` is needed only when editing Swift source, not when replaying tests. `ffprobe`/FFmpeg is useful for independent video verification, but recording uses native Apple frameworks.
+
+For a longer discovery/build work session between recordings, run `caffeinate -diu -t 14400` in a separate terminal. It expires after four hours; Control-C releases it earlier. `pmset -g assertions` shows the active `caffeinate` assertions. This is a temporary session, not a change to the Mac's permanent lock policy.
 
 ## 2. Install the real app
 
